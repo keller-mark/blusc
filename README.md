@@ -7,9 +7,10 @@ The Blosc algorithm wraps other compression methods, including zstd, snappy, and
 
 We will use pure rust implementations of these inner compression methods:
 
-- ruzstd crate:: https://github.com/KillingSpark/zstd-rs
-- snap crate: https://github.com/BurntSushi/rust-snappy
-- lz4_flex crate: https://github.com/pseitz/lz4_flex
+- ruzstd crate for zstd: https://github.com/KillingSpark/zstd-rs
+- snap crate for snappy: https://github.com/BurntSushi/rust-snappy
+- lz4_flex crate for lz4: https://github.com/pseitz/lz4_flex
+- flate2 crate for zlib: https://github.com/rust-lang/flate2-rs
 
 This crate offers pure rust implementations of the following functions and constants:
 
@@ -31,3 +32,15 @@ This crate offers pure rust implementations of the following functions and const
 - blosc2_decompress_ctx
 
 For reference during development, this crate contains the `reference` (old bindings to C library) and `c-blosc2` (C library) directories.
+
+## Development
+
+```sh
+cargo build
+```
+
+### Testing
+
+```sh
+cargo test
+```
