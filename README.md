@@ -1,11 +1,12 @@
 # blusc
 
-Pure rust implementation of Blosc compression and decompression.
+It is 2025, why are all of our compression algorithms still bindings to C libraries?
 
 
-The Blosc algorithm wraps other compression methods, including zstd, snappy, and lz4.
+This is an attempt at a pure Rust implementation of Blosc compression and decompression.
 
-We will use pure rust implementations of these inner compression methods:
+
+The Blosc algorithm wraps other compression methods, including zstd, snappy, lz4, and zlib. We will use pure Rust implementations of these inner compression methods:
 
 - ruzstd crate for zstd: https://github.com/KillingSpark/zstd-rs
 - snap crate for snappy: https://github.com/BurntSushi/rust-snappy
@@ -31,8 +32,6 @@ This crate offers pure rust implementations of the following functions and const
 - blosc2_create_dctx
 - blosc2_decompress_ctx
 
-For reference during development, this crate contains the `reference` (old bindings to C library) and `c-blosc2` (C library) directories.
-
 ## Development
 
 ```sh
@@ -44,3 +43,7 @@ cargo build
 ```sh
 cargo test
 ```
+
+-----
+
+For reference during development, this crate contains the `reference` (old bindings to C library) and `c-blosc2` (C library) directories.
