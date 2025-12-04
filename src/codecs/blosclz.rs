@@ -205,6 +205,8 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
                 code = input[ip] as usize; ip += 1;
             }
 
+            len += 2;
+
             if code == 255 && ofs == (31 << 8) {
                 if ip + 1 >= length { println!("Fail 4"); return 0; }
                 ofs = (input[ip] as usize) << 8; ip += 1;
@@ -213,6 +215,8 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
             } else {
                 ofs += code; 
             }
+
+            // println!("Match: op={} len={} ofs={}", op, len, ofs);
 
             if op + len > maxout { println!("Fail 5: op={} len={} maxout={}", op, len, maxout); return 0; }
             
