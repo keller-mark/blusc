@@ -106,7 +106,7 @@ pub fn compress(
     // 2. Compress
     if dest.len() < 16 { return Err(-1); }
     let max_compressed_size = dest.len() - 16;
-    let mut compressed_size = 0;
+    let mut compressed_size;
     
     match compressor {
         BLOSC_BLOSCLZ => {
@@ -206,4 +206,40 @@ pub fn decompress(src: &[u8], dest: &mut [u8]) -> Result<usize, i32> {
     }
     
     Ok(nbytes)
+}
+
+pub fn getitem(src: &[u8], start: usize, nitems: usize, dest: &mut [u8]) -> Result<usize, i32> {
+    if src.len() < 16 { return Err(-1); }
+    
+    // Parse header
+    let typesize = src[3] as usize;
+    let nbytes = u32::from_le_bytes([src[4], src[5], src[6], src[7]]) as usize;
+    
+    if typesize == 0 { return Err(-1); }
+    
+    let start_byte = start * typesize;
+    let num_bytes = nitems * typesize;
+    
+    if start_byte + num_bytes > nbytes { return Err(-1); }
+    if dest.len() < num_bytes { return Err(-1); }
+    
+    // For now, we decompress the whole block. 
+    // Optimization: If memcpyed, we can just copy.
+    
+    let flags = src[2];
+    if (flags & BLOSC_MEMCPYED) != 0 {
+        let cbytes = u32::from_le_bytes([src[12], src[13], src[14], src[15]]) as usize;
+        if src.len() < cbytes { return Err(-1); }
+        let compressed_data = &src[16..cbytes];
+        dest[0..num_bytes].copy_from_slice(&compressed_data[start_byte..start_byte+num_bytes]);
+        return Ok(num_bytes);
+    }
+
+    // Full decompression needed
+    let mut tmp_buf = vec![0u8; nbytes];
+    decompress(src, &mut tmp_buf)?;
+    
+    dest[0..num_bytes].copy_from_slice(&tmp_buf[start_byte..start_byte+num_bytes]);
+    
+    Ok(num_bytes)
 }

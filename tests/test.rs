@@ -1,7 +1,4 @@
 use blusc::{
-    blosc1_cbuffer_metainfo,
-    blosc1_cbuffer_validate,
-    blosc1_cbuffer_sizes,
     blosc1_getitem,
     blosc2_get_complib_info,
     blosc2_compress,
@@ -123,4 +120,57 @@ fn floats_roundtrip() {
 
     // check if the values in both arrays are equal
     assert_eq!(src, result);
+}
+
+#[test]
+fn test_getitem() {
+    unsafe {
+        let text = "This is a test string for getitem.";
+        let bytes = text.as_bytes();
+        let mut compressed = vec![0; bytes.len() * 2 + 32];
+        
+        let size = blosc2_compress(
+            5,
+            1, // Shuffle
+            1, // typesize 1
+            bytes.as_ptr().cast(),
+            bytes.len(),
+            compressed.as_mut_ptr().cast(),
+            compressed.len(),
+        );
+        assert!(size > 0);
+        
+        let start = 10;
+        let nitems = 4; // "test"
+        let mut dest = vec![0u8; nitems];
+        
+        let ret = blosc1_getitem(
+            compressed.as_ptr().cast(),
+            start as i32,
+            nitems as i32,
+            dest.as_mut_ptr().cast(),
+        );
+        
+        assert_eq!(ret, nitems as i32);
+        assert_eq!(&dest, b"test");
+    }
+}
+
+#[test]
+fn test_complib_info() {
+    unsafe {
+        let mut complib: *mut std::os::raw::c_char = std::ptr::null_mut();
+        let mut version: *mut std::os::raw::c_char = std::ptr::null_mut();
+        
+        let code = std::ffi::CString::new("blosclz").unwrap();
+        let ret = blosc2_get_complib_info(code.as_ptr(), &mut complib, &mut version);
+        
+        assert_eq!(ret, 0);
+        
+        let lib_str = std::ffi::CStr::from_ptr(complib).to_str().unwrap();
+        assert_eq!(lib_str, "BloscLZ");
+        
+        let ver_str = std::ffi::CStr::from_ptr(version).to_str().unwrap();
+        assert!(!ver_str.is_empty());
+    }
 }

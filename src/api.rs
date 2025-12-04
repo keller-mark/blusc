@@ -108,25 +108,59 @@ pub unsafe extern "C" fn blosc1_cbuffer_sizes(
     blosc2_cbuffer_sizes(cbuffer, nbytes, cbytes, blocksize);
 }
 
+use std::ffi::CStr;
+
 #[no_mangle]
 pub unsafe extern "C" fn blosc1_getitem(
-    _cbuffer: *const c_void,
-    _start: c_int,
-    _nitems: c_int,
-    _dest: *mut c_void,
+    cbuffer: *const c_void,
+    start: c_int,
+    nitems: c_int,
+    dest: *mut c_void,
 ) -> c_int {
-    // TODO
-    0
+    let header = slice::from_raw_parts(cbuffer as *const u8, 16);
+    let cbytes = u32::from_le_bytes([header[12], header[13], header[14], header[15]]) as usize;
+    let typesize = header[3] as usize;
+    
+    let src_slice = slice::from_raw_parts(cbuffer as *const u8, cbytes);
+    let dest_size = (nitems as usize) * typesize;
+    let dest_slice = slice::from_raw_parts_mut(dest as *mut u8, dest_size);
+    
+    match internal::getitem(src_slice, start as usize, nitems as usize, dest_slice) {
+        Ok(size) => size as c_int,
+        Err(_) => 0,
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn blosc2_get_complib_info(
-    _compcode: *const c_char,
-    _complib: *mut *mut c_char,
-    _version: *mut *mut c_char,
+    compcode: *const c_char,
+    complib: *mut *mut c_char,
+    version: *mut *mut c_char,
 ) -> c_int {
-    // TODO
-    0
+    if compcode.is_null() { return -1; }
+    let code = match CStr::from_ptr(compcode).to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    
+    let (lib, ver, comp_code) = match code {
+        "blosclz" => (b"BloscLZ\0".as_ptr(), b"2.5.1\0".as_ptr(), 0),
+        "lz4" => (b"LZ4\0".as_ptr(), b"1.9.4\0".as_ptr(), 1),
+        "lz4hc" => (b"LZ4\0".as_ptr(), b"1.9.4\0".as_ptr(), 1),
+        "snappy" => (b"Snappy\0".as_ptr(), b"1.1.9\0".as_ptr(), 2),
+        "zlib" => (b"Zlib\0".as_ptr(), b"1.2.11\0".as_ptr(), 3),
+        "zstd" => (b"Zstd\0".as_ptr(), b"1.5.2\0".as_ptr(), 4),
+        _ => return -1,
+    };
+    
+    if !complib.is_null() {
+        *complib = lib as *mut c_char;
+    }
+    if !version.is_null() {
+        *version = ver as *mut c_char;
+    }
+    
+    comp_code
 }
 
 #[no_mangle]
@@ -240,7 +274,7 @@ pub unsafe extern "C" fn blosc2_create_dctx(dparams: blosc2_dparams) -> *mut blo
 
 #[no_mangle]
 pub unsafe extern "C" fn blosc2_decompress_ctx(
-    context: *mut blosc2_context,
+    _context: *mut blosc2_context,
     src: *const c_void,
     srcsize: usize,
     dest: *mut c_void,
