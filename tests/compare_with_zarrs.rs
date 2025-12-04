@@ -1,12 +1,9 @@
 use blusc::api::{
-    blosc2_compress as blusc_blosc2_compress,
-    blosc2_decompress as blusc_blosc2_decompress,
     blosc2_create_cctx as blusc_blosc2_create_cctx,
     blosc2_compress_ctx as blusc_blosc2_compress_ctx,
-    blosc2_create_dctx as blusc_blosc2_create_dctx,
     blosc2_decompress_ctx as blusc_blosc2_decompress_ctx,
     BLOSC2_CPARAMS_DEFAULTS as BLUSC_BLOSC2_CPARAMS_DEFAULTS,
-    BLOSC2_DPARAMS_DEFAULTS as BLUSC_BLOSC2_DPARAMS_DEFAULTS,
+    BLOSC2_MAX_OVERHEAD as BLUSC_BLOSC2_MAX_OVERHEAD,
 };
 
 pub fn convert_from_bytes_slice<T: bytemuck::Pod>(from: &[u8]) -> Vec<T> {
@@ -51,15 +48,6 @@ impl BytesRepresentation {
     }
 }
 
-const JSON_VALID1: &str = r#"
-{
-    "cname": "lz4",
-    "clevel": 5,
-    "shuffle": "shuffle",
-    "typesize": 2,
-    "blocksize": 0
-}"#;
-
 
 #[test]
 fn codec_blosc_round_trip1() {
@@ -68,14 +56,31 @@ fn codec_blosc_round_trip1() {
 
     let elements: Vec<u16> = (0..32).collect();
     let bytes = transmute_to_bytes_vec(elements);
-    let bytes_representation = BytesRepresentation::FixedSize(bytes.len() as u64);
+    let _bytes_representation = BytesRepresentation::FixedSize(bytes.len() as u64);
 
     assert_eq!(bytes, ground_truth);
 
-    // TODO: blosc_compress_ctx(clevel: 5, doshuffle: Shuffle, typesize: 2, nbytes: 64, destsize 0, compressor LZ4, bloscksize: 0)
-    
+    // TODO: blusc_compress(clevel: 5, doshuffle: Shuffle, typesize: 2, compressor: LZ4, bloscksize: 0)
+    let mut cparams = BLUSC_BLOSC2_CPARAMS_DEFAULTS;
+    cparams.compcode = 1; // LZ4
+    cparams.clevel = 5;
+    cparams.typesize = 2;
+    cparams.filters[5] = 1; // Shuffle
+    cparams.blocksize = 0;
 
-    assert_eq!(decoded, ground_truth)
+    let ctx = blusc_blosc2_create_cctx(cparams);
+
+    let mut compressed = vec![0u8; bytes.len() + BLUSC_BLOSC2_MAX_OVERHEAD as usize];
+    let csize = blusc_blosc2_compress_ctx(&ctx, &bytes, &mut compressed);
+
+    assert!(csize > 0);
+    compressed.truncate(csize as usize);
+
+    let mut decoded = vec![0u8; bytes.len()];
+    let dsize = blusc_blosc2_decompress_ctx(&ctx, &compressed, &mut decoded);
+
+    assert_eq!(dsize as usize, bytes.len());
+    assert_eq!(decoded, ground_truth);
     
     
 }
