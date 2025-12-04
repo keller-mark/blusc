@@ -1,5 +1,4 @@
 use blusc::api::{blosc2_compress, blosc2_decompress, BLOSC2_MAX_OVERHEAD};
-use std::ffi::c_void;
 
 struct TestCase {
     type_size: usize,
@@ -54,28 +53,22 @@ fn run_roundtrip(case: &TestCase) {
     let mut intermediate = vec![0u8; dest_size];
     let mut result = vec![0u8; buffer_size];
 
-    unsafe {
-        let csize = blosc2_compress(
-            case.clevel,
-            case.doshuffle,
-            case.type_size,
-            original.as_ptr() as *const c_void,
-            buffer_size,
-            intermediate.as_mut_ptr() as *mut c_void,
-            dest_size,
-        );
+    let csize = blosc2_compress(
+        case.clevel,
+        case.doshuffle,
+        case.type_size,
+        &original,
+        &mut intermediate,
+    );
 
-        assert!(csize > 0, "Compression failed");
+    assert!(csize > 0, "Compression failed");
 
-        let dsize = blosc2_decompress(
-            intermediate.as_ptr() as *const c_void,
-            csize as usize,
-            result.as_mut_ptr() as *mut c_void,
-            buffer_size,
-        );
+    let dsize = blosc2_decompress(
+        &intermediate,
+        &mut result,
+    );
 
-        assert_eq!(dsize, buffer_size as i32, "Decompression size mismatch");
-    }
+    assert_eq!(dsize, buffer_size as i32, "Decompression size mismatch");
 
     assert_eq!(original, result, "Data mismatch after roundtrip");
 }
