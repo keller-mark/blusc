@@ -1,9 +1,25 @@
-use blosc2_src::*;
+use blusc::{
+    blosc1_cbuffer_metainfo,
+    blosc1_cbuffer_validate,
+    blosc1_cbuffer_sizes,
+    blosc1_getitem,
+    blosc2_get_complib_info,
+    blosc2_compress,
+    blosc2_decompress,
+    BLOSC_NOSHUFFLE,
+    BLOSC2_MAX_OVERHEAD,
+    BLOSC2_CPARAMS_DEFAULTS,
+    BLOSC2_DPARAMS_DEFAULTS,
+    blosc2_create_cctx,
+    blosc2_compress_ctx,
+    blosc2_cbuffer_sizes,
+    blosc2_create_dctx,
+    blosc2_decompress_ctx,
+};
 
 #[test]
 fn roundtrip() {
     unsafe {
-        blosc2_init();
 
         let text =
             "I am here writing some very cool and novel words which I will compress and decompress";
@@ -33,8 +49,6 @@ fn roundtrip() {
         assert!(stat > 0);
 
         assert_eq!(text, std::str::from_utf8(&outtext).unwrap());
-
-        blosc2_destroy();
     }
 }
 

@@ -11,3 +11,22 @@ We will use pure rust implementations of these inner compression methods:
 - snap crate: https://github.com/BurntSushi/rust-snappy
 - lz4_flex crate: https://github.com/pseitz/lz4_flex
 
+This crate offers pure rust implementations of the following functions and constants:
+
+- blosc1_cbuffer_metainfo
+- blosc1_cbuffer_validate
+- blosc1_cbuffer_sizes
+- blosc1_getitem
+- blosc2_get_complib_info
+- blosc2_compress
+- blosc2_decompress
+- BLOSC_NOSHUFFLE
+- BLOSC2_MAX_OVERHEAD
+- BLOSC2_CPARAMS_DEFAULTS
+- BLOSC2_DPARAMS_DEFAULTS
+- blosc2_create_cctx
+- blosc2_compress_ctx
+- blosc2_cbuffer_sizes
+- blosc2_create_dctx
+- blosc2_decompress_ctx
+
