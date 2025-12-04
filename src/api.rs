@@ -2,6 +2,27 @@ use crate::internal;
 use std::os::raw::c_void;
 
 // Constants
+// Reference: https://github.com/maiteko/blosc2-src-rs/blob/9aa1ba98a9fe7a59c112d691bfea0caed6f00382/src/bindings.rs#L3C1-L21C53
+pub const BLOSC2_VERSION_MAJOR: u32 = 2;
+pub const BLOSC2_VERSION_MINOR: u32 = 11;
+pub const BLOSC2_VERSION_RELEASE: u32 = 0;
+pub const BLOSC2_VERSION_STRING: &[u8; 7usize] = b"2.11.0\0";
+pub const BLOSC2_VERSION_DATE: &[u8; 22usize] = b"$Date:: 2023-11-04 #$\0";
+pub const BLOSC2_MAX_DIM: u32 = 8;
+pub const BLOSC_BLOSCLZ_COMPNAME: &[u8; 8usize] = b"blosclz\0";
+pub const BLOSC_LZ4_COMPNAME: &[u8; 4usize] = b"lz4\0";
+pub const BLOSC_LZ4HC_COMPNAME: &[u8; 6usize] = b"lz4hc\0";
+pub const BLOSC_ZLIB_COMPNAME: &[u8; 5usize] = b"zlib\0";
+pub const BLOSC_ZSTD_COMPNAME: &[u8; 5usize] = b"zstd\0";
+pub const BLOSC_BLOSCLZ_LIBNAME: &[u8; 8usize] = b"BloscLZ\0";
+pub const BLOSC_LZ4_LIBNAME: &[u8; 4usize] = b"LZ4\0";
+pub const BLOSC_ZLIB_LIBNAME: &[u8; 5usize] = b"Zlib\0";
+pub const BLOSC_ZSTD_LIBNAME: &[u8; 5usize] = b"Zstd\0";
+pub const BLOSC2_MAX_METALAYERS: u32 = 16;
+pub const BLOSC2_METALAYER_NAME_MAXLEN: u32 = 31;
+pub const BLOSC2_MAX_VLMETALAYERS: u32 = 8192;
+pub const BLOSC2_VLMETALAYERS_NAME_MAXLEN: u32 = 31;
+
 pub const BLOSC_NOSHUFFLE: i32 = 0;
 pub const BLOSC_SHUFFLE: i32 = 1;
 pub const BLOSC_BITSHUFFLE: i32 = 2;

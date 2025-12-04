@@ -62,6 +62,11 @@ fn roundtrip_blosc_compress_then_blusc_decompress() {
 }
 
 #[test]
+fn roundtrip_blusc_compress_then_blosc_decompress() {
+ // TODO
+}
+
+#[test]
 fn floats_roundtrip_blosc_compress_then_blusc_decompress() {
     // generate numerical data
     let src: Vec<f32> = (0..10000)
@@ -132,4 +137,9 @@ fn floats_roundtrip_blosc_compress_then_blusc_decompress() {
 
     // check if the values in both arrays are equal
     assert_eq!(src, result);
+}
+
+#[test]
+fn floats_roundtrip_blusc_compress_then_blosc_decompress() {
+    // TODO
 }
