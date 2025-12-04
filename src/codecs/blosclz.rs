@@ -107,6 +107,8 @@ pub fn compress(_clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
         }
         copy = 0;
 
+        let len = len - 2;
+
         // Encode the match
         if distance_biased < MAX_DISTANCE {
             if len < 7 {
