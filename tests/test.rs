@@ -31,20 +31,20 @@ fn roundtrip() {
         let stat = blosc2_compress(
             9,
             BLOSC_NOSHUFFLE as _,
-            std::mem::size_of::<u8>() as i32,
+            std::mem::size_of::<u8>(),
             bytes.as_ptr().cast(),
-            bytes.len() as i32,
+            bytes.len(),
             compressed.as_mut_ptr().cast(),
-            compressed.len() as i32,
+            compressed.len(),
         );
         assert!(stat > 0);
 
         let mut outtext = vec![0_u8; bytes.len()];
         let stat = blosc2_decompress(
             compressed.as_ptr().cast(),
-            compressed.len() as i32,
+            compressed.len(),
             outtext.as_mut_ptr().cast(),
-            outtext.len() as i32,
+            outtext.len(),
         );
         assert!(stat > 0);
 
@@ -69,27 +69,16 @@ fn floats_roundtrip() {
         let rsize = unsafe {
             let mut cparams = BLOSC2_CPARAMS_DEFAULTS;
             cparams.typesize = typesize as i32;
+            cparams.compcode = 0; // Use BloscLZ
+            cparams.filters[5] = 2; // Enable BitShuffle
             let context = blosc2_create_cctx(cparams);
-
-            // blosc2_compress_ctx(
-            //     context,
-            //     BLOSC_BITSHUFFLE as i32,
-            //     typesize,
-            //     src_size,
-            //     src.as_ptr().cast(),
-            //     dest.as_mut_ptr().cast(),
-            //     dest_size,
-            //     BLOSC_BLOSCLZ_COMPNAME.as_ptr().cast(),
-            //     0,
-            //     1,
-            // )
 
             blosc2_compress_ctx(
                 context,
                 src.as_ptr().cast(),
-                src_size as i32,
+                src_size,
                 dest.as_mut_ptr().cast(),
-                dest_size as i32,
+                dest_size,
             )
         };
 
@@ -103,9 +92,9 @@ fn floats_roundtrip() {
 
     // decompress
     let result = {
-        let mut nbytes: i32 = 0;
-        let mut _cbytes: i32 = 0;
-        let mut _blocksize: i32 = 0;
+        let mut nbytes: usize = 0;
+        let mut _cbytes: usize = 0;
+        let mut _blocksize: usize = 0;
         unsafe {
             blosc2_cbuffer_sizes(
                 dest.as_ptr().cast(),
@@ -115,15 +104,15 @@ fn floats_roundtrip() {
             )
         };
         assert!(nbytes != 0);
-        let dest_size = nbytes / std::mem::size_of::<f32>() as i32;
-        let mut result = vec![0f32; dest_size as usize];
+        let dest_size = nbytes / std::mem::size_of::<f32>();
+        let mut result = vec![0f32; dest_size];
         let error = unsafe {
             let dparams = BLOSC2_DPARAMS_DEFAULTS;
             let context = blosc2_create_dctx(dparams);
             blosc2_decompress_ctx(
                 context,
                 dest.as_ptr().cast(),
-                dest.len() as i32,
+                dest.len(),
                 result.as_mut_ptr().cast(),
                 nbytes,
             )
