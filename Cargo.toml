@@ -1,0 +1,34 @@
+[package]
+name = "blosc2-src"
+version = "0.1.4"
+authors = ["Sean Pace <sean.m.pace@outlook.com>"]
+edition = "2021"
+build = "build.rs"
+links = "blosc2"
+license-file = "c-blosc2/LICENSE.txt"
+exclude = [
+    "c-blosc2/compat/**",
+    "c-blosc2/tests/**",
+    "c-blosc2/bench/**",
+    "c-blosc2/internal-complibs/zlib-ng-2.0.7/contrib/**",
+    "c-blosc2/internal-complibs/zlib-ng-2.0.7/examples/**",
+    "c-blosc2/internal-complibs/zlib-ng-2.0.7/doc/**",
+    "c-blosc2/internal-complibs/zstd-1.5.5/legacy/**",
+]
+repository = "https://github.com/maiteko/blosc2-src-rs"
+keywords = ["compression"]
+categories = ["external-ffi-bindings", "compression"]
+description = "FFI bindings for c-blosc2"
+
+
+[features]
+# run bindgen when building, requires llvm
+bindgen = ["dep:bindgen"]
+zstd = []
+
+[dependencies]
+libc = "0.2.150"
+
+[build-dependencies]
+bindgen = { version = "0.71.1", optional = true }
+cc = "1.0"
