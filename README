@@ -1,3 +1,13 @@
-Library for automatically building c-blosc2 and generating bindings for Rust.
+# blusc
 
-By default it uses bindings.rs which is checked into the library. bindings can be regenerated using the `bindgen` feature, however this requires llvm to be installed locally.
+Pure rust implementation of Blosc compression and decompression.
+
+
+The Blosc algorithm wraps other compression methods, including zstd, snappy, and lz4.
+
+We will use pure rust implementations of these inner compression methods:
+
+- ruzstd crate:: https://github.com/KillingSpark/zstd-rs
+- snap crate: https://github.com/BurntSushi/rust-snappy
+- lz4_flex crate: https://github.com/pseitz/lz4_flex
+
