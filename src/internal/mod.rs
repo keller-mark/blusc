@@ -7,6 +7,29 @@ pub const BLOSC_VERSION_FORMAT: u8 = 2;
 pub const BLOSC_MIN_HEADER_LENGTH: usize = 16;
 
 // Compressor codes
+/*
+:codec_flags:
+    (``uint8``) Compressor enumeration (defaults for all the chunks in storage).
+
+    :``0`` to ``3``:
+        Enumerated for codecs (up to 16).
+    :``0``:
+        ``blosclz``
+    :``1``:
+        ``lz4`` or ``lz4hc``
+    :``2``:
+        reserved (slot previously occupied by ``snappy`` and free now)
+    :``3``:
+        ``zlib``
+    :``4``:
+        ``zstd``
+    :``5``:
+        reserved
+    :``6``:
+        The compressor is defined in the user-defined codec slot (see below).
+    :``7 to 15``:
+        Reserved
+ */
 pub const BLOSC_BLOSCLZ: u8 = 0;
 pub const BLOSC_LZ4: u8 = 1;
 pub const BLOSC_LZ4HC: u8 = 1;
