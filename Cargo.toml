@@ -23,3 +23,5 @@ flate2 = "1.1.5"
 # ONLY FOR TESTING THAT THE RUST IMPLEMENTATION MATCHES THE C BINDINGS
 # Reference: https://github.com/maiteko/blosc2-src-rs
 blosc2-src = "0.1.4"
+bytemuck = { version = "1.14.0", features = ["extern_crate_alloc", "must_cast", "min_const_generics"] }
+bytes = "1.7.0"
