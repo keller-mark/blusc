@@ -30,3 +30,4 @@ This crate offers pure rust implementations of the following functions and const
 - blosc2_create_dctx
 - blosc2_decompress_ctx
 
+For reference during development, this crate contains the `reference` (old bindings to C library) and `c-blosc2` (C library) directories.
