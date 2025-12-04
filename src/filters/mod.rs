@@ -106,48 +106,35 @@ pub fn bitshuffle(bytesoftype: usize, blocksize: usize, src: &[u8], dest: &mut [
     Ok(())
 }
 
-fn bshuf_trans_byte_bitrow_scal(in_buf: &[u8], out_buf: &mut [u8], size: usize, elem_size: usize) {
-    let nbyte_row = size / 8;
-    for jj in 0..elem_size {
-        for ii in 0..nbyte_row {
-            for kk in 0..8 {
-                out_buf[ii * 8 * elem_size + jj * 8 + kk] = in_buf[(jj * 8 + kk) * nbyte_row + ii];
-            }
+fn bshuf_untrans_bitrow_eight(in_buf: &[u8], out_buf: &mut [u8], size: usize, elem_size: usize) {
+    let nbyte_bitrow = size / 8;
+    let lda = 8;
+    let ldb = nbyte_bitrow;
+    
+    for ii in 0..lda {
+        for jj in 0..ldb {
+            let src_idx = (jj * lda + ii) * elem_size;
+            let dst_idx = (ii * ldb + jj) * elem_size;
+            out_buf[dst_idx..dst_idx+elem_size].copy_from_slice(&in_buf[src_idx..src_idx+elem_size]);
         }
     }
 }
 
-fn bshuf_shuffle_bit_eightelem_scal(in_buf: &[u8], out_buf: &mut [u8], size: usize, elem_size: usize) {
+fn bshuf_untrans_bit_byte_scal(in_buf: &[u8], out_buf: &mut [u8], size: usize, elem_size: usize) {
     let nbyte = elem_size * size;
-    let elem_skip = elem_size;
-    let elem_offset = 0;
+    let nbyte_bitrow = nbyte / 8;
+    let bit_row_skip = nbyte_bitrow;
 
-    // We need to iterate over bytes but read as u64.
-    // The C code does: x = *((uint64_t*) &in_b[ii + jj]);
-    // ii steps by 8*elem_size, jj steps by 8.
-    
-    // Let's rewrite loops to match C structure more closely but safely if possible.
-    // Or just use unsafe pointer arithmetic if needed, but slices are better.
-    
-    for jj in (0..8*elem_size).step_by(8) {
-        let mut ii = 0;
-        while ii + 8 * elem_size - 1 < nbyte {
-             let idx = ii + jj;
-             // Read u64 from in_buf at idx
-             let bytes = [in_buf[idx], in_buf[idx+1], in_buf[idx+2], in_buf[idx+3],
-                          in_buf[idx+4], in_buf[idx+5], in_buf[idx+6], in_buf[idx+7]];
-             let mut x = u64::from_le_bytes(bytes);
-             
-             x = trans_bit_8x8(x);
-             
-             for kk in 0..8 {
-                 let out_index = ii + jj / 8 + elem_offset + kk * elem_skip;
-                 out_buf[out_index] = x as u8;
-                 x >>= 8;
-             }
-             
-             ii += 8 * elem_size;
+    let out_u64 = unsafe { std::slice::from_raw_parts_mut(out_buf.as_mut_ptr() as *mut u64, nbyte / 8) };
+
+    for ii in 0..nbyte_bitrow {
+        let mut x: u64 = 0;
+        for kk in 0..8 {
+            let val = in_buf[kk * bit_row_skip + ii];
+            x |= (val as u64) << (kk * 8);
         }
+        x = trans_bit_8x8(x);
+        out_u64[ii] = x;
     }
 }
 
@@ -156,9 +143,40 @@ pub fn bitunshuffle(bytesoftype: usize, blocksize: usize, src: &[u8], dest: &mut
     if size % 8 != 0 { return Err(-80); }
 
     let mut tmp_buf = vec![0u8; blocksize];
+    let mut tmp_buf2 = vec![0u8; blocksize];
 
-    bshuf_trans_byte_bitrow_scal(src, &mut tmp_buf, size, bytesoftype);
-    bshuf_shuffle_bit_eightelem_scal(&tmp_buf, dest, size, bytesoftype);
+    // 1. Reverse Step 3: Untranspose bitrows
+    bshuf_untrans_bitrow_eight(src, &mut tmp_buf, size, bytesoftype);
+
+    // 2. Reverse Step 2: Untranspose bits
+    bshuf_untrans_bit_byte_scal(&tmp_buf, &mut tmp_buf2, size, bytesoftype);
+
+    // 3. Reverse Step 1: Untranspose bytes/elements
+    // Note: we swap size and bytesoftype to reverse the transpose
+    bshuf_trans_byte_elem_scal(&tmp_buf2, dest, bytesoftype, size);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bitshuffle_roundtrip() {
+        let size = 128;
+        let typesize = 4;
+        let blocksize = size * typesize;
+        let mut src = vec![0u8; blocksize];
+        for i in 0..blocksize {
+            src[i] = (i % 255) as u8;
+        }
+        let mut dest = vec![0u8; blocksize];
+        let mut recovered = vec![0u8; blocksize];
+
+        bitshuffle(typesize, blocksize, &src, &mut dest).unwrap();
+        bitunshuffle(typesize, blocksize, &dest, &mut recovered).unwrap();
+
+        assert_eq!(src, recovered);
+    }
 }

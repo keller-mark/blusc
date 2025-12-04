@@ -71,7 +71,13 @@ pub unsafe extern "C" fn blosc1_cbuffer_metainfo(
     typesize: *mut usize,
     flags: *mut c_int,
 ) {
-    // TODO
+    let src = slice::from_raw_parts(cbuffer as *const u8, 16);
+    if src.len() < 16 { return; }
+    let ts = src[3] as usize;
+    let fl = src[2] as c_int;
+    
+    if !typesize.is_null() { *typesize = ts; }
+    if !flags.is_null() { *flags = fl; }
 }
 
 #[no_mangle]
@@ -80,7 +86,15 @@ pub unsafe extern "C" fn blosc1_cbuffer_validate(
     cbytes: usize,
     nbytes: *mut usize,
 ) -> c_int {
-    // TODO
+    let src = slice::from_raw_parts(cbuffer as *const u8, 16);
+    if src.len() < 16 { return -1; }
+    
+    let cb = u32::from_le_bytes([src[12], src[13], src[14], src[15]]) as usize;
+    if cbytes != cb { return -1; }
+    
+    let nb = u32::from_le_bytes([src[4], src[5], src[6], src[7]]) as usize;
+    if !nbytes.is_null() { *nbytes = nb; }
+    
     0
 }
 
@@ -91,15 +105,15 @@ pub unsafe extern "C" fn blosc1_cbuffer_sizes(
     cbytes: *mut usize,
     blocksize: *mut usize,
 ) {
-    // TODO
+    blosc2_cbuffer_sizes(cbuffer, nbytes, cbytes, blocksize);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn blosc1_getitem(
-    cbuffer: *const c_void,
-    start: c_int,
-    nitems: c_int,
-    dest: *mut c_void,
+    _cbuffer: *const c_void,
+    _start: c_int,
+    _nitems: c_int,
+    _dest: *mut c_void,
 ) -> c_int {
     // TODO
     0
@@ -107,9 +121,9 @@ pub unsafe extern "C" fn blosc1_getitem(
 
 #[no_mangle]
 pub unsafe extern "C" fn blosc2_get_complib_info(
-    compcode: *const c_char,
-    complib: *mut *mut c_char,
-    version: *mut *mut c_char,
+    _compcode: *const c_char,
+    _complib: *mut *mut c_char,
+    _version: *mut *mut c_char,
 ) -> c_int {
     // TODO
     0
