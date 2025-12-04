@@ -84,3 +84,35 @@ fn codec_blosc_round_trip1() {
     
     
 }
+
+#[test]
+fn codec_blosc_round_trip2() {
+    let ground_truth = [0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0, 9, 0, 10, 0, 11, 0, 12, 0, 13, 0, 14, 0, 15, 0, 16, 0, 17, 0, 18, 0, 19, 0, 20, 0, 21, 0, 22, 0, 23, 0, 24, 0, 25, 0, 26, 0, 27, 0, 28, 0, 29, 0, 30, 0, 31, 0];
+
+    let elements: Vec<u16> = (0..32).collect();
+    let bytes = transmute_to_bytes_vec(elements);
+    let _bytes_representation = BytesRepresentation::FixedSize(bytes.len() as u64);
+
+    assert_eq!(bytes, ground_truth);
+
+    let mut cparams = BLUSC_BLOSC2_CPARAMS_DEFAULTS;
+    cparams.compcode = 4; // ZSTD
+    cparams.clevel = 5;
+    cparams.typesize = 2;
+    cparams.filters[5] = 1; // Shuffle
+    cparams.blocksize = 0;
+    let ctx = blusc_blosc2_create_cctx(cparams);
+
+    let mut compressed = vec![0u8; bytes.len() + BLUSC_BLOSC2_MAX_OVERHEAD as usize];
+    let csize = blusc_blosc2_compress_ctx(&ctx, &bytes, &mut compressed);
+
+    assert!(csize > 0);
+    compressed.truncate(csize as usize);
+
+    let mut decoded = vec![0u8; bytes.len()];
+    let dsize = blusc_blosc2_decompress_ctx(&ctx, &compressed, &mut decoded);
+
+    assert_eq!(dsize as usize, bytes.len());
+    assert_eq!(decoded, ground_truth);
+
+}
