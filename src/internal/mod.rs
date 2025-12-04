@@ -66,7 +66,7 @@ fn decompress_buffer(compressor: u8, src: &[u8], dest: &mut [u8]) -> Result<usiz
             }
         },
         BLOSC_ZSTD => {
-            let mut decoder = ruzstd::decoding::StreamingDecoder::new(std::io::Cursor::new(src)).map_err(|_| -1)?;
+            let mut decoder = zstd::stream::read::Decoder::new(std::io::Cursor::new(src)).map_err(|_| -1)?;
             match decoder.read_exact(dest) {
                 Ok(_) => Ok(dest.len()),
                 Err(_) => Ok(0),
@@ -140,8 +140,18 @@ pub fn compress(
             }
         },
         BLOSC_ZSTD => {
-            // ruzstd does not support compression
-            return Err(-1);
+            let cursor = std::io::Cursor::new(&mut dest[16..]);
+            let mut encoder = zstd::stream::write::Encoder::new(cursor, clevel).map_err(|_| -1)?;
+            if encoder.write_all(filtered_src).is_ok() {
+                 match encoder.finish() {
+                     Ok(cursor) => {
+                         compressed_size = cursor.position() as usize;
+                     }
+                     Err(_) => compressed_size = 0,
+                 }
+            } else {
+                 compressed_size = 0;
+            }
         },
         _ => return Err(-1),
     }

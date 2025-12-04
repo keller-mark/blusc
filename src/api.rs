@@ -18,6 +18,7 @@ pub const BLOSC_BLOSCLZ_LIBNAME: &[u8; 8usize] = b"BloscLZ\0";
 pub const BLOSC_LZ4_LIBNAME: &[u8; 4usize] = b"LZ4\0";
 pub const BLOSC_ZLIB_LIBNAME: &[u8; 5usize] = b"Zlib\0";
 pub const BLOSC_ZSTD_LIBNAME: &[u8; 5usize] = b"Zstd\0";
+pub const BLOSC_SNAPPY_COMPNAME: &[u8; 7usize] = b"snappy\0";
 pub const BLOSC2_MAX_METALAYERS: u32 = 16;
 pub const BLOSC2_METALAYER_NAME_MAXLEN: u32 = 31;
 pub const BLOSC2_MAX_VLMETALAYERS: u32 = 8192;

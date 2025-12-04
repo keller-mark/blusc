@@ -15,7 +15,7 @@ description = "Pure rust implementation for blosc"
 
 [dependencies]
 lz4_flex = "0.12.0"
-ruzstd = "0.8.2"
+zstd = "0.13"
 flate2 = "^1.1.1"
 snap = "^1.1.1"
 
