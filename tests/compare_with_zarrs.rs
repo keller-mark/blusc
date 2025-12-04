@@ -1,9 +1,11 @@
 use blusc::api::{
     blosc2_create_cctx as blusc_blosc2_create_cctx,
     blosc2_compress_ctx as blusc_blosc2_compress_ctx,
+    blosc2_create_dctx as blusc_blosc2_create_dctx,
     blosc2_decompress_ctx as blusc_blosc2_decompress_ctx,
     BLOSC2_CPARAMS_DEFAULTS as BLUSC_BLOSC2_CPARAMS_DEFAULTS,
     BLOSC2_MAX_OVERHEAD as BLUSC_BLOSC2_MAX_OVERHEAD,
+    BLOSC2_DPARAMS_DEFAULTS as BLUSC_BLOSC2_DPARAMS_DEFAULTS,
 };
 
 pub fn convert_from_bytes_slice<T: bytemuck::Pod>(from: &[u8]) -> Vec<T> {
@@ -68,16 +70,22 @@ fn codec_blosc_round_trip1() {
     cparams.filters[5] = 1; // Shuffle
     cparams.blocksize = 0;
 
-    let ctx = blusc_blosc2_create_cctx(cparams);
+    let cctx = blusc_blosc2_create_cctx(cparams);
 
     let mut compressed = vec![0u8; bytes.len() + BLUSC_BLOSC2_MAX_OVERHEAD as usize];
-    let csize = blusc_blosc2_compress_ctx(&ctx, &bytes, &mut compressed);
+    let csize = blusc_blosc2_compress_ctx(&cctx, &bytes, &mut compressed);
 
     assert!(csize > 0);
     compressed.truncate(csize as usize);
 
+    // TODO: fix this. internally, blosc2_create_dctx initializes a struct using the default CPARAMS.
+    // is this correct, or do we need to specify the parameters (like during compression)? 
+    let mut dparams = BLUSC_BLOSC2_DPARAMS_DEFAULTS;
+    dparams.nthreads = 1 as i32;
+    let dctx = blusc_blosc2_create_dctx(dparams);
+
     let mut decoded = vec![0u8; bytes.len()];
-    let dsize = blusc_blosc2_decompress_ctx(&ctx, &compressed, &mut decoded);
+    let dsize = blusc_blosc2_decompress_ctx(&dctx, &compressed, &mut decoded);
 
     assert_eq!(dsize as usize, bytes.len());
     assert_eq!(decoded, ground_truth);
@@ -101,16 +109,21 @@ fn codec_blosc_round_trip2() {
     cparams.typesize = 2;
     cparams.filters[5] = 1; // Shuffle
     cparams.blocksize = 0;
-    let ctx = blusc_blosc2_create_cctx(cparams);
+    let cctx = blusc_blosc2_create_cctx(cparams);
 
     let mut compressed = vec![0u8; bytes.len() + BLUSC_BLOSC2_MAX_OVERHEAD as usize];
-    let csize = blusc_blosc2_compress_ctx(&ctx, &bytes, &mut compressed);
+    let csize = blusc_blosc2_compress_ctx(&cctx, &bytes, &mut compressed);
 
     assert!(csize > 0);
     compressed.truncate(csize as usize);
 
+
+    let mut dparams = BLUSC_BLOSC2_DPARAMS_DEFAULTS;
+    dparams.nthreads = 1 as i32;
+    let dctx = blusc_blosc2_create_dctx(dparams);
+
     let mut decoded = vec![0u8; bytes.len()];
-    let dsize = blusc_blosc2_decompress_ctx(&ctx, &compressed, &mut decoded);
+    let dsize = blusc_blosc2_decompress_ctx(&dctx, &compressed, &mut decoded);
 
     assert_eq!(dsize as usize, bytes.len());
     assert_eq!(decoded, ground_truth);
