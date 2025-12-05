@@ -44,9 +44,9 @@ cargo build
 ### Testing
 
 ```sh
-cargo test
+cargo test -- --test-threads=1 --nocapture
 ```
 
 -----
 
-For reference during development, this crate contains the `c-blosc2` (C library) directory as a git submodule.
+For reference during development, this crate contains the C implementations in `c-blosc` and `c-blosc2` directories as git submodules.

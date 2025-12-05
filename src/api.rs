@@ -64,7 +64,7 @@ pub struct Blosc2Dparams {
 
 // Default constants
 pub const BLOSC2_CPARAMS_DEFAULTS: Blosc2Cparams = Blosc2Cparams {
-    compcode: 1, // BLOSC_BLOSCLZ
+    compcode: 0, // BLOSC_BLOSCLZ
     clevel: 5,
     use_dict: 0,
     typesize: 8,

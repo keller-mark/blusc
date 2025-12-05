@@ -236,6 +236,7 @@ fn floats_roundtrip_blusc_compress_then_blosc_decompress() {
                 result.len() as i32 * std::mem::size_of::<f32>() as i32,
             )
         };
+        println!("error code: {}", error);
         assert!(error >= 1);
         result
     };
