@@ -52,6 +52,7 @@ fn roundtrip_blosc_compress_then_blusc_decompress() {
             &compressed,
             &mut outtext,
         );
+        println!("Decompress returned: {}", stat);
         assert!(stat > 0);
 
         assert_eq!(text, std::str::from_utf8(&outtext).unwrap());
@@ -79,16 +80,23 @@ fn roundtrip_blusc_compress_then_blosc_decompress() {
             bytes,
             &mut compressed,
         );
+        println!("Rust compress returned: {}", stat);
+        if stat > 0 {
+            println!("Compressed to {} bytes", stat);
+            println!("Header: {:02x?}", &compressed[..16]);
+            println!("Extended header: {:02x?}", &compressed[16..32]);
+        }
         assert!(stat > 0);
 
         let mut outtext = vec![0_u8; bytes.len()];
-        let stat = bound_blosc2_decompress(
+        let stat2 = bound_blosc2_decompress(
             compressed.as_ptr().cast(),
             stat,
             outtext.as_mut_ptr().cast(),
             outtext.len() as i32,
         );
-        assert!(stat > 0);
+        println!("C decompress returned: {}", stat2);
+        assert!(stat2 > 0);
 
         assert_eq!(text, std::str::from_utf8(&outtext).unwrap());
 
@@ -204,6 +212,9 @@ fn floats_roundtrip_blusc_compress_then_blosc_decompress() {
         };
 
         assert!(rsize > 0);
+        println!("Rust compressed to {} bytes", rsize);
+        println!("Header: {:02x?}", &dest[0..16]);
+        println!("First 32 bytes of compressed data: {:02x?}", &dest[16..48.min(rsize as usize)]);
         dest.into_iter().take(rsize as usize).collect()
     };
 
