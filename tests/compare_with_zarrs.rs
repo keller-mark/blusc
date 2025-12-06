@@ -4,9 +4,9 @@ use blusc::api::{
     blosc2_create_dctx as blusc_blosc2_create_dctx,
     blosc2_decompress_ctx as blusc_blosc2_decompress_ctx,
     BLOSC2_CPARAMS_DEFAULTS as BLUSC_BLOSC2_CPARAMS_DEFAULTS,
-    BLOSC2_MAX_OVERHEAD as BLUSC_BLOSC2_MAX_OVERHEAD,
     BLOSC2_DPARAMS_DEFAULTS as BLUSC_BLOSC2_DPARAMS_DEFAULTS,
 };
+use blusc::BLOSC2_MAX_OVERHEAD as BLUSC_BLOSC2_MAX_OVERHEAD;
 
 pub fn convert_from_bytes_slice<T: bytemuck::Pod>(from: &[u8]) -> Vec<T> {
     bytemuck::allocation::pod_collect_to_vec(from)

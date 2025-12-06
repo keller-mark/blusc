@@ -34,16 +34,15 @@ pub struct Blosc2Dparams {
 
 // Default constants
 pub const BLOSC2_CPARAMS_DEFAULTS: Blosc2Cparams = Blosc2Cparams {
-    // TODO: use constants here.
-    compcode: 0, // BLOSC_BLOSCLZ
+    compcode: BLOSC_BLOSCLZ as i32,
     clevel: 5,
     use_dict: 0,
     typesize: 8,
     nthreads: 1,
     blocksize: 0,
-    splitmode: 1, // BLOSC_FORWARD_COMPAT_SPLIT
+    splitmode: BLOSC_FORWARD_COMPAT_SPLIT as i32,
     schunk: std::ptr::null_mut(),
-    filters: [0; 6],
+    filters: [BLOSC_NOFILTER as i32; 6],
     filters_meta: [0; 6],
     compcode_meta: 0,
     delta: 0,
@@ -160,12 +159,12 @@ pub fn blosc2_compress_ctx(
 ) -> i32 {
     let clevel = context.cparams.clevel;
     let typesize = context.cparams.typesize as usize;
-    let compressor = 0; // TODO
+    let compressor = context.cparams.compcode;
     
-    let mut doshuffle = 0; // TODO: use constants
+    let mut doshuffle = BLOSC_NOSHUFFLE as i32;
     for &f in context.cparams.filters.iter() {
-        if f == 1 { doshuffle = 1; }
-        if f == 2 { doshuffle = 2; }
+        if f == BLOSC_SHUFFLE as i32 { doshuffle = BLOSC_SHUFFLE as i32; }
+        if f == BLOSC_BITSHUFFLE as i32 { doshuffle = BLOSC_BITSHUFFLE as i32; }
     }
     
     match internal::compress(clevel, doshuffle, typesize, src, dest, compressor as u8) {

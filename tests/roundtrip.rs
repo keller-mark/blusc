@@ -1,4 +1,5 @@
-use blusc::api::{blosc2_compress, blosc2_decompress, BLOSC2_MAX_OVERHEAD};
+use blusc::api::{blosc2_compress, blosc2_decompress};
+use blusc::BLOSC2_MAX_OVERHEAD;
 
 struct TestCase {
     type_size: usize,
