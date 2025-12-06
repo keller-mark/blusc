@@ -307,11 +307,11 @@ pub const BLOSC2_SPECIAL_MASK: u8 = 0x7;     // special value mask (prev IDs can
  * print_error()
  */
 
-pub const BLOSC2_ERROR_SUCCESS: i32 = 0;           //<! Success
-pub const BLOSC2_ERROR_FAILURE: i32 = -1;          //<! Generic failure
-pub const BLOSC2_ERROR_STREAM: i32 = -2;          //<! Bad stream
-pub const BLOSC2_ERROR_DATA: i32 = -3;             //<! Invalid data
-pub const BLOSC2_ERROR_MEMORY_ALLOC: i32 = -4;    //<! Memory alloc/realloc failure
+pub const BLOSC2_ERROR_SUCCESS: i32 = 0;           // Success
+pub const BLOSC2_ERROR_FAILURE: i32 = -1;          // Generic failure
+pub const BLOSC2_ERROR_STREAM: i32 = -2;          // Bad stream
+pub const BLOSC2_ERROR_DATA: i32 = -3;             // Invalid data
+pub const BLOSC2_ERROR_MEMORY_ALLOC: i32 = -4;    // Memory alloc/realloc failure
 pub const BLOSC2_ERROR_READ_BUFFER: i32 = -5;    // Not enough space to read
 pub const BLOSC2_ERROR_WRITE_BUFFER: i32 = -6;   // Not enough space to write
 pub const BLOSC2_ERROR_CODEC_SUPPORT: i32 = -7;    // Codec not supported
