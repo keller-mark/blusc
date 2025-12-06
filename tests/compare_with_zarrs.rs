@@ -114,6 +114,7 @@ fn codec_blosc_round_trip2() {
     let mut compressed = vec![0u8; bytes.len() + BLUSC_BLOSC2_MAX_OVERHEAD as usize];
     let csize = blusc_blosc2_compress_ctx(&cctx, &bytes, &mut compressed);
 
+    println!("Compressed size: {}", csize);
     assert!(csize > 0);
     compressed.truncate(csize as usize);
 
