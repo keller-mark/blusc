@@ -8,6 +8,7 @@ const HASH_LOG: usize = 14;
 
 pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
     if input.is_empty() {
+        println!("blosclz decompress: input is empty");
         return 0;
     }
     let mut ip = 0;
@@ -15,17 +16,26 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
     let ip_limit = input.len();
     let op_limit = output.len();
     
+    println!("blosclz decompress: input.len()={}, output.len()={}", ip_limit, op_limit);
+    
     let mut ctrl = (input[ip] & 31) as u32;
     ip += 1;
     
+    println!("Initial ctrl = {}", ctrl);
+    
     loop {
+        println!("Loop: ip={}, op={}, ctrl={}", ip, op, ctrl);
         if ctrl >= 32 {
+            println!("  Match branch");
             let mut len = (ctrl >> 5) as i32 - 1;
             let mut ofs = (ctrl & 31) as i32 * 256;
             
             if len == 6 {
                 loop {
-                    if ip >= ip_limit { return 0; }
+                    if ip >= ip_limit { 
+                        println!("  Error: ip >= ip_limit in len==6 loop");
+                        return 0; 
+                    }
                     let code = input[ip];
                     ip += 1;
                     len += code as i32;
@@ -33,7 +43,10 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
                 }
             }
             
-            if ip >= ip_limit { return 0; }
+            if ip >= ip_limit { 
+                println!("  Error: ip >= ip_limit before reading code");
+                return 0; 
+            }
             let code = input[ip];
             ip += 1;
             len += 3;
@@ -42,7 +55,10 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
             
             if code == 255 {
                 if ofs == 31 * 256 {
-                    if ip + 1 >= ip_limit { return 0; }
+                    if ip + 1 >= ip_limit { 
+                        println!("  Error: ip + 1 >= ip_limit in code==255");
+                        return 0; 
+                    }
                     let ofs_new = (input[ip] as i32) << 8 | (input[ip+1] as i32);
                     ip += 2;
                     distance = ofs_new + MAX_DISTANCE as i32;
@@ -51,12 +67,18 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
             
             distance += 1;
             
-            if op + len as usize > op_limit { return 0; }
-            if (op as i32) < distance { return 0; }
+            if op + len as usize > op_limit { 
+                println!("  Error: op + len > op_limit: {} + {} > {}", op, len, op_limit);
+                return 0; 
+            }
+            if (op as i32) < distance { 
+                println!("  Error: op < distance: {} < {}", op, distance);
+                return 0; 
+            }
             
             let ref_pos = op - distance as usize;
             
-            if ip >= ip_limit { break; }
+            if ip >= ip_limit { println!("Break at ip >= ip_limit after match"); break; }
             ctrl = input[ip] as u32;
             ip += 1;
             
@@ -76,15 +98,22 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
             }
             op += len as usize;
         } else {
+            println!("  Literal branch");
             ctrl += 1;
-            if op + ctrl as usize > op_limit { return 0; }
-            if ip + ctrl as usize > ip_limit { return 0; }
+            if op + ctrl as usize > op_limit { 
+                println!("  Error: op + ctrl > op_limit: {} + {} > {}", op, ctrl, op_limit);
+                return 0; 
+            }
+            if ip + ctrl as usize > ip_limit { 
+                println!("  Error: ip + ctrl > ip_limit: {} + {} > {}", ip, ctrl, ip_limit);
+                return 0; 
+            }
             
             output[op..op + ctrl as usize].copy_from_slice(&input[ip..ip + ctrl as usize]);
             op += ctrl as usize;
             ip += ctrl as usize;
             
-            if ip >= ip_limit { break; }
+            if ip >= ip_limit { println!("Break at ip >= ip_limit after literal"); break; }
             ctrl = input[ip] as u32;
             ip += 1;
         }

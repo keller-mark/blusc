@@ -10,7 +10,8 @@ pub struct Blosc2Context {
 }
 
 // Structs
-#[repr(C)]
+// Note: these may need to be adjusted so that the implementation works correctly,
+// but we want to use the proper Rust idioms when porting the structs.
 pub struct Blosc2Cparams {
     pub compcode: i32,
     pub clevel: i32,
@@ -167,7 +168,15 @@ pub fn blosc2_compress_ctx(
         if f == BLOSC_BITSHUFFLE as i32 { doshuffle = BLOSC_BITSHUFFLE as i32; }
     }
     
-    match internal::compress(clevel, doshuffle, typesize, src, dest, compressor as u8) {
+    // Convert filters from i32 array to u8 array
+    let mut filters = [BLOSC_NOFILTER as u8; 6];
+    let mut filters_meta = [0u8; 6];
+    for i in 0..6 {
+        filters[i] = context.cparams.filters[i] as u8;
+        filters_meta[i] = context.cparams.filters_meta[i] as u8;
+    }
+    
+    match internal::compress_extended(clevel, doshuffle, typesize, src, dest, compressor as u8, &filters, &filters_meta) {
         Ok(size) => size as i32,
         Err(_) => 0,
     }
