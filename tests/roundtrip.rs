@@ -26,9 +26,6 @@ fn blosc2_cleanup() {
     }
 }
 
-
-
-
 struct TestCase {
     type_size: usize,
     num_elements: usize,
@@ -36,37 +33,73 @@ struct TestCase {
     doshuffle: i32,
 }
 
+// Small buffers
 #[test]
-fn test_compress_roundtrip_cases() {
-    let cases = vec![
-        // Small buffers
-        TestCase { type_size: 1, num_elements: 7, clevel: 5, doshuffle: 0 },
-        TestCase { type_size: 2, num_elements: 7, clevel: 5, doshuffle: 0 },
-        TestCase { type_size: 4, num_elements: 7, clevel: 5, doshuffle: 0 },
-        TestCase { type_size: 8, num_elements: 7, clevel: 5, doshuffle: 0 },
-        
-        // Larger buffers
-        TestCase { type_size: 1, num_elements: 10000, clevel: 5, doshuffle: 0 },
-        TestCase { type_size: 4, num_elements: 10000, clevel: 5, doshuffle: 1 }, // Shuffle
-        TestCase { type_size: 8, num_elements: 10000, clevel: 5, doshuffle: 2 }, // Bitshuffle
-        
-        // Different compression levels
-        TestCase { type_size: 4, num_elements: 5000, clevel: 1, doshuffle: 1 },
-        TestCase { type_size: 4, num_elements: 5000, clevel: 9, doshuffle: 1 },
-        
-        // Odd sizes
-        TestCase { type_size: 3, num_elements: 1000, clevel: 5, doshuffle: 1 },
-        TestCase { type_size: 16, num_elements: 1000, clevel: 5, doshuffle: 1 },
-        TestCase { type_size: 33, num_elements: 100, clevel: 5, doshuffle: 0 },
-        TestCase { type_size: 1, num_elements: 702713, clevel: 5, doshuffle: 0 }, // From CSV
-    ];
+fn test_roundtrip_small_1() {
+    run_roundtrip(&TestCase { type_size: 1, num_elements: 7, clevel: 5, doshuffle: 0 });
+}
 
-    for (i, case) in cases.iter().enumerate() {
-        println!("Running case {}: type_size={}, num_elements={}, clevel={}, doshuffle={}", 
-                 i, case.type_size, case.num_elements, case.clevel, case.doshuffle);
-        
-        run_roundtrip(case);
-    }
+#[test]
+fn test_roundtrip_small_2() {
+    run_roundtrip(&TestCase { type_size: 2, num_elements: 7, clevel: 5, doshuffle: 0 });
+}
+
+#[test]
+fn test_roundtrip_small_4() {
+    run_roundtrip(&TestCase { type_size: 4, num_elements: 7, clevel: 5, doshuffle: 0 });
+}
+
+#[test]
+fn test_roundtrip_small_8() {
+    run_roundtrip(&TestCase { type_size: 8, num_elements: 7, clevel: 5, doshuffle: 0 });
+}
+
+// Larger buffers
+#[test]
+fn test_roundtrip_large_1() {
+    run_roundtrip(&TestCase { type_size: 1, num_elements: 10000, clevel: 5, doshuffle: 0 });
+}
+
+#[test]
+fn test_roundtrip_large_shuffle() {
+    run_roundtrip(&TestCase { type_size: 4, num_elements: 10000, clevel: 5, doshuffle: 1 });
+}
+
+#[test]
+fn test_roundtrip_large_bitshuffle() {
+    run_roundtrip(&TestCase { type_size: 8, num_elements: 10000, clevel: 5, doshuffle: 2 });
+}
+
+// Different compression levels
+#[test]
+fn test_roundtrip_clevel_1() {
+    run_roundtrip(&TestCase { type_size: 4, num_elements: 5000, clevel: 1, doshuffle: 1 });
+}
+
+#[test]
+fn test_roundtrip_clevel_9() {
+    run_roundtrip(&TestCase { type_size: 4, num_elements: 5000, clevel: 9, doshuffle: 1 });
+}
+
+// Odd sizes
+#[test]
+fn test_roundtrip_odd_3() {
+    run_roundtrip(&TestCase { type_size: 3, num_elements: 1000, clevel: 5, doshuffle: 1 });
+}
+
+#[test]
+fn test_roundtrip_odd_16() {
+    run_roundtrip(&TestCase { type_size: 16, num_elements: 1000, clevel: 5, doshuffle: 1 });
+}
+
+#[test]
+fn test_roundtrip_odd_33() {
+    run_roundtrip(&TestCase { type_size: 33, num_elements: 100, clevel: 5, doshuffle: 0 });
+}
+
+#[test]
+fn test_roundtrip_csv_case() {
+    run_roundtrip(&TestCase { type_size: 1, num_elements: 702713, clevel: 5, doshuffle: 0 });
 }
 
 fn run_roundtrip(case: &TestCase) {
