@@ -122,7 +122,7 @@ pub fn compress_extended(
 }
 
 fn split_block(compressor: u8, clevel: i32, typesize: usize, blocksize: usize, doshuffle: i32) -> bool {
-    if doshuffle != BLOSC_SHUFFLE as i32 { return false; }
+    if doshuffle != BLOSC_SHUFFLE as i32 && doshuffle != BLOSC_BITSHUFFLE as i32 { return false; }
     
     let split = match compressor {
         BLOSC_BLOSCLZ | BLOSC_LZ4 => true,
@@ -251,6 +251,9 @@ fn compress_internal(
             _ => return Err(-1),
         }
         
+        // Debug print
+        // println!("Stream {}: size {}", j, stream_csize);
+
         if stream_csize == 0 || stream_csize >= neblock {
             incompressible = true;
             break;

@@ -82,13 +82,14 @@ fn bshuf_trans_bit_byte_scal(in_buf: &[u8], out_buf: &mut [u8], size: usize, ele
 fn bshuf_trans_bitrow_eight(in_buf: &[u8], out_buf: &mut [u8], size: usize, elem_size: usize) {
     let nbyte_bitrow = size / 8;
     let lda = 8;
-    let ldb = nbyte_bitrow;
+    let ldb = elem_size;
+    let block_size = nbyte_bitrow;
     
     for ii in 0..lda {
         for jj in 0..ldb {
-            let src_idx = (ii * ldb + jj) * elem_size;
-            let dst_idx = (jj * lda + ii) * elem_size;
-            out_buf[dst_idx..dst_idx+elem_size].copy_from_slice(&in_buf[src_idx..src_idx+elem_size]);
+            let src_idx = (ii * ldb + jj) * block_size;
+            let dst_idx = (jj * lda + ii) * block_size;
+            out_buf[dst_idx..dst_idx+block_size].copy_from_slice(&in_buf[src_idx..src_idx+block_size]);
         }
     }
 }
@@ -108,14 +109,15 @@ pub fn bitshuffle(bytesoftype: usize, blocksize: usize, src: &[u8], dest: &mut [
 
 fn bshuf_untrans_bitrow_eight(in_buf: &[u8], out_buf: &mut [u8], size: usize, elem_size: usize) {
     let nbyte_bitrow = size / 8;
-    let lda = 8;
-    let ldb = nbyte_bitrow;
+    let lda = elem_size;
+    let ldb = 8;
+    let block_size = nbyte_bitrow;
     
     for ii in 0..lda {
         for jj in 0..ldb {
-            let src_idx = (jj * lda + ii) * elem_size;
-            let dst_idx = (ii * ldb + jj) * elem_size;
-            out_buf[dst_idx..dst_idx+elem_size].copy_from_slice(&in_buf[src_idx..src_idx+elem_size]);
+            let src_idx = (ii * ldb + jj) * block_size;
+            let dst_idx = (jj * lda + ii) * block_size;
+            out_buf[dst_idx..dst_idx+block_size].copy_from_slice(&in_buf[src_idx..src_idx+block_size]);
         }
     }
 }
