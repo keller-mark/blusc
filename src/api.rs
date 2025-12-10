@@ -77,7 +77,7 @@ pub const BLOSC2_DPARAMS_DEFAULTS: Blosc2Dparams = Blosc2Dparams {
 pub fn blosc1_cbuffer_metainfo(
     cbuffer: &[u8],
 ) -> Option<(usize, i32)> {
-    if cbuffer.len() < 16 { return None; }
+    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH { return None; }
     let ts = cbuffer[3] as usize;
     let fl = cbuffer[2] as i32;
     
@@ -88,7 +88,7 @@ pub fn blosc1_cbuffer_validate(
     cbuffer: &[u8],
     cbytes: usize,
 ) -> Result<usize, ()> {
-    if cbuffer.len() < 16 { return Err(()); }
+    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH { return Err(()); }
     
     let cb = u32::from_le_bytes([cbuffer[12], cbuffer[13], cbuffer[14], cbuffer[15]]) as usize;
     if cbytes != cb { return Err(()); }
@@ -148,8 +148,8 @@ pub fn blosc2_compress(
     // Default compressor: BLOSCLZ (0)
     let compressor = BLOSC_BLOSCLZ;
     
-    let mut filters = [0u8; 6];
-    let filters_meta = [0u8; 6];
+    let mut filters = [0u8; BLOSC2_MAX_FILTERS as usize];
+    let filters_meta = [0u8; BLOSC2_MAX_FILTERS as usize];
     
     if doshuffle == BLOSC_SHUFFLE as i32 {
         filters[5] = BLOSC_SHUFFLE;
@@ -208,7 +208,7 @@ pub fn blosc2_compress_ctx(
 pub fn blosc2_cbuffer_sizes(
     cbuffer: &[u8],
 ) -> (usize, usize, usize) {
-    if cbuffer.len() < 16 { return (0, 0, 0); }
+    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH { return (0, 0, 0); }
     let nb = u32::from_le_bytes([cbuffer[4], cbuffer[5], cbuffer[6], cbuffer[7]]) as usize;
     let bs = u32::from_le_bytes([cbuffer[8], cbuffer[9], cbuffer[10], cbuffer[11]]) as usize;
     let cb = u32::from_le_bytes([cbuffer[12], cbuffer[13], cbuffer[14], cbuffer[15]]) as usize;

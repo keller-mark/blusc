@@ -12,8 +12,8 @@ fn create_header_blosc1(
     typesize: usize,
     flags: u8,
     compressor: u8,
-) -> [u8; 16] {
-    let mut header = [0u8; 16];
+) -> [u8; BLOSC_MIN_HEADER_LENGTH] {
+    let mut header = [0u8; BLOSC_MIN_HEADER_LENGTH];
     header[0] = BLOSC1_VERSION_FORMAT;
     header[1] = 1; // Version for compressor (e.g., 1 for blosclz)
     header[2] = flags | (compressor << 5);
@@ -33,8 +33,8 @@ fn create_header_blosc2(
     compressor: u8,
     filters: &[u8; 6],
     filters_meta: &[u8; 6],
-) -> [u8; 32] {
-    let mut header = [0u8; 32];
+) -> [u8; BLOSC_EXTENDED_HEADER_LENGTH] {
+    let mut header = [0u8; BLOSC_EXTENDED_HEADER_LENGTH];
     // First 16 bytes: standard Blosc header
     header[0] = BLOSC2_VERSION_FORMAT_STABLE;
     header[1] = 1; // Version for compressor (e.g., 1 for blosclz)
@@ -143,11 +143,11 @@ fn compress_internal(
     let mut filtered_src = src;
     
     let mut flags = 0; // Single block
-    if doshuffle == 1 { // Shuffle
+    if doshuffle == BLOSC_SHUFFLE as i32 { // Shuffle
         filters::shuffle(typesize, nbytes, src, &mut filtered_buf);
         filtered_src = &filtered_buf;
         flags |= BLOSC_DOSHUFFLE;
-    } else if doshuffle == 2 { // Bitshuffle
+    } else if doshuffle == BLOSC_BITSHUFFLE as i32 { // Bitshuffle
         filters::bitshuffle(typesize, nbytes, src, &mut filtered_buf).map_err(|_| -1)?;
         filtered_src = &filtered_buf;
         flags |= BLOSC_DOBITSHUFFLE;
@@ -254,10 +254,10 @@ fn compress_internal(
     let cbytes = compressed_size + actual_data_offset;
     if extended_header {
         let header = create_header_blosc2(nbytes, blocksize, cbytes, typesize, flags, compressor, filters, filters_meta);
-        dest[0..32].copy_from_slice(&header);
+        dest[0..BLOSC_EXTENDED_HEADER_LENGTH].copy_from_slice(&header);
     } else {
         let header = create_header_blosc1(nbytes, blocksize, cbytes, typesize, flags, compressor);
-        dest[0..16].copy_from_slice(&header);
+        dest[0..BLOSC_MIN_HEADER_LENGTH].copy_from_slice(&header);
     }
     
     Ok(cbytes)
@@ -456,7 +456,7 @@ pub fn decompress(src: &[u8], dest: &mut [u8]) -> Result<usize, Box<dyn std::err
 }
 
 pub fn getitem(src: &[u8], start: usize, nitems: usize, dest: &mut [u8]) -> Result<usize, i32> {
-    if src.len() < 16 { return Err(-1); }
+    if src.len() < BLOSC_MIN_HEADER_LENGTH { return Err(-1); }
     
     // Check version to determine header size
     let version = src[0];
