@@ -1,65 +1,63 @@
 use crate::codecs::blosclz;
 use crate::filters;
 use std::io::{Read, Write};
+use crate::internal::constants::*;
 
-// Constants
-pub const BLOSC_VERSION_FORMAT: u8 = 2;
-pub const BLOSC_MIN_HEADER_LENGTH: usize = 16;
+pub mod constants;
 
-// Compressor codes
-/*
-:codec_flags:
-    (``uint8``) Compressor enumeration (defaults for all the chunks in storage).
-
-    :``0`` to ``3``:
-        Enumerated for codecs (up to 16).
-    :``0``:
-        ``blosclz``
-    :``1``:
-        ``lz4`` or ``lz4hc``
-    :``2``:
-        reserved (slot previously occupied by ``snappy`` and free now)
-    :``3``:
-        ``zlib``
-    :``4``:
-        ``zstd``
-    :``5``:
-        reserved
-    :``6``:
-        The compressor is defined in the user-defined codec slot (see below).
-    :``7 to 15``:
-        Reserved
- */
-pub const BLOSC_BLOSCLZ: u8 = 0;
-pub const BLOSC_LZ4: u8 = 1;
-pub const BLOSC_LZ4HC: u8 = 1;
-pub const BLOSC_SNAPPY: u8 = 2;
-pub const BLOSC_ZLIB: u8 = 3;
-pub const BLOSC_ZSTD: u8 = 4;
-
-// Flags
-pub const BLOSC_DOSHUFFLE: u8 = 0x1;
-pub const BLOSC_MEMCPYED: u8 = 0x2;
-pub const BLOSC_DOBITSHUFFLE: u8 = 0x4;
-pub const BLOSC_DODELTA: u8 = 0x8;
-pub const BLOSC_NOT_SPLIT: u8 = 0x10;
-
-fn create_header(
+fn create_header_blosc1(
     nbytes: usize,
     blocksize: usize,
     cbytes: usize,
     typesize: usize,
     flags: u8,
     compressor: u8,
-) -> [u8; 16] {
-    let mut header = [0u8; 16];
-    header[0] = BLOSC_VERSION_FORMAT;
-    header[1] = 1; // versionlz
+) -> [u8; BLOSC_MIN_HEADER_LENGTH] {
+    let mut header = [0u8; BLOSC_MIN_HEADER_LENGTH];
+    header[0] = BLOSC1_VERSION_FORMAT;
+    header[1] = 1; // Version for compressor (e.g., 1 for blosclz)
     header[2] = flags | (compressor << 5);
     header[3] = typesize as u8;
     header[4..8].copy_from_slice(&(nbytes as u32).to_le_bytes());
     header[8..12].copy_from_slice(&(blocksize as u32).to_le_bytes());
     header[12..16].copy_from_slice(&(cbytes as u32).to_le_bytes());
+    header
+}
+
+fn create_header_blosc2(
+    nbytes: usize,
+    blocksize: usize,
+    cbytes: usize,
+    typesize: usize,
+    flags: u8,
+    compressor: u8,
+    filters: &[u8; 6],
+    filters_meta: &[u8; 6],
+) -> [u8; BLOSC_EXTENDED_HEADER_LENGTH] {
+    let mut header = [0u8; BLOSC_EXTENDED_HEADER_LENGTH];
+    // First 16 bytes: standard Blosc header
+    header[0] = BLOSC2_VERSION_FORMAT_STABLE;
+    header[1] = 1; // Version for compressor (e.g., 1 for blosclz)
+    header[2] = flags | (compressor << 5);
+    header[3] = typesize as u8;
+    header[4..8].copy_from_slice(&(nbytes as u32).to_le_bytes());
+    header[8..12].copy_from_slice(&(blocksize as u32).to_le_bytes());
+    header[12..16].copy_from_slice(&(cbytes as u32).to_le_bytes());
+    
+    // Extended header (bytes 16-31)
+    // Bytes 16-21: filters[0..6]
+    header[16..22].copy_from_slice(filters);
+    // Byte 22: compressor code (same as bits 5-7 of flags byte)
+    header[22] = compressor;
+    // Byte 23: compressor metadata
+    header[23] = 0;
+    // Bytes 24-29: filters_meta[0..6]
+    header[24..30].copy_from_slice(filters_meta);
+    // Byte 30: reserved
+    header[30] = 0;
+    // Byte 31: blosc2 flags
+    header[31] = 0;
+    
     header
 }
 
@@ -107,49 +105,94 @@ pub fn compress(
     dest: &mut [u8],
     compressor: u8,
 ) -> Result<usize, i32> {
+    compress_internal(clevel, doshuffle, typesize, src, dest, compressor, false, &[BLOSC_NOFILTER as u8; 6], &[0; 6])
+}
+
+pub fn compress_extended(
+    clevel: i32,
+    doshuffle: i32,
+    typesize: usize,
+    src: &[u8],
+    dest: &mut [u8],
+    compressor: u8,
+    filters: &[u8; 6],
+    filters_meta: &[u8; 6],
+) -> Result<usize, i32> {
+    compress_internal(clevel, doshuffle, typesize, src, dest, compressor, true, filters, filters_meta)
+}
+
+fn compress_internal(
+    clevel: i32,
+    doshuffle: i32,
+    typesize: usize,
+    src: &[u8],
+    dest: &mut [u8],
+    compressor: u8,
+    extended_header: bool,
+    filters: &[u8; 6],
+    filters_meta: &[u8; 6],
+) -> Result<usize, i32> {
     let nbytes = src.len();
     let blocksize = nbytes; // Single block
+    let nblocks = 1; // Single block for now
+    
+    let header_len = if extended_header { BLOSC_EXTENDED_HEADER_LENGTH } else { BLOSC_MIN_HEADER_LENGTH };
     
     // 1. Filter
     let mut filtered_buf = vec![0u8; nbytes];
     let mut filtered_src = src;
     
-    let mut flags = BLOSC_NOT_SPLIT; // Single block
-    println!("Compressing: nbytes={}, typesize={}, doshuffle={}, compressor={}", nbytes, typesize, doshuffle, compressor);
-    if doshuffle == 1 { // Shuffle
+    let mut flags = 0; // Single block
+    if doshuffle == BLOSC_SHUFFLE as i32 { // Shuffle
         filters::shuffle(typesize, nbytes, src, &mut filtered_buf);
         filtered_src = &filtered_buf;
         flags |= BLOSC_DOSHUFFLE;
-    } else if doshuffle == 2 { // Bitshuffle
+    } else if doshuffle == BLOSC_BITSHUFFLE as i32 { // Bitshuffle
         filters::bitshuffle(typesize, nbytes, src, &mut filtered_buf).map_err(|_| -1)?;
         filtered_src = &filtered_buf;
         flags |= BLOSC_DOBITSHUFFLE;
     }
+    
+    // For extended headers, set both DOSHUFFLE and DOBITSHUFFLE as a marker
+    // (This is how Blosc2 indicates an extended header - both flags set is invalid for actual filtering)
+    if extended_header {
+        flags |= BLOSC_DOSHUFFLE | BLOSC_DOBITSHUFFLE;
+    }
+
+    // Calculate data start offset (header + bstarts array for extended non-memcpy)
+    let mut data_offset = header_len;
+    let will_add_bstarts = extended_header && (clevel > 0) && (nbytes >= BLOSC_MIN_BUFFERSIZE);
+    if will_add_bstarts {
+        data_offset += nblocks * 4; // Each block start is an i32 (4 bytes)
+    }
 
     // 2. Compress
-    if dest.len() < 16 { return Err(-1); }
-    let max_compressed_size = dest.len() - 16;
+    // We need to reserve space for the stream size (4 bytes) because we are not splitting
+    // and treating the block as a single stream.
+    let stream_overhead = 4;
+    if dest.len() < data_offset + stream_overhead { return Err(-1); }
+    let _max_compressed_size = dest.len() - data_offset - stream_overhead;
     let mut compressed_size;
     
     match compressor {
         BLOSC_BLOSCLZ => {
-            compressed_size = blosclz::compress(clevel, filtered_src, &mut dest[16..]);
+            compressed_size = blosclz::compress(clevel, filtered_src, &mut dest[data_offset + stream_overhead..]);
         },
         BLOSC_LZ4 => {
-             match lz4_flex::block::compress_into(filtered_src, &mut dest[16..]) {
+             match lz4_flex::block::compress_into(filtered_src, &mut dest[data_offset + stream_overhead..]) {
                  Ok(size) => compressed_size = size,
                  Err(_) => compressed_size = 0,
              }
         },
         BLOSC_SNAPPY => {
             let mut encoder = snap::raw::Encoder::new();
-            match encoder.compress(filtered_src, &mut dest[16..]) {
+            match encoder.compress(filtered_src, &mut dest[data_offset + stream_overhead..]) {
                 Ok(size) => compressed_size = size,
                 Err(_) => compressed_size = 0,
             }
         },
         BLOSC_ZLIB => {
-            let cursor = std::io::Cursor::new(&mut dest[16..]);
+            let cursor = std::io::Cursor::new(&mut dest[data_offset + stream_overhead..]);
             let mut encoder = flate2::write::ZlibEncoder::new(cursor, flate2::Compression::new(clevel as u32));
             if encoder.write_all(filtered_src).is_ok() {
                  match encoder.finish() {
@@ -163,7 +206,7 @@ pub fn compress(
             }
         },
         BLOSC_ZSTD => {
-            let cursor = std::io::Cursor::new(&mut dest[16..]);
+            let cursor = std::io::Cursor::new(&mut dest[data_offset + stream_overhead..]);
             let mut encoder = zstd::stream::write::Encoder::new(cursor, clevel).map_err(|_| -1)?;
             if encoder.write_all(filtered_src).is_ok() {
                  match encoder.finish() {
@@ -178,171 +221,343 @@ pub fn compress(
         },
         _ => return Err(-1),
     }
-    println!("Compressed size: {}", compressed_size);
     
-    if compressed_size == 0 || compressed_size >= nbytes {
+    let actual_data_offset;
+    if compressed_size == 0 || compressed_size + stream_overhead >= nbytes {
          // Memcpy
-         if nbytes > max_compressed_size { return Err(-1); }
-         dest[16..16+nbytes].copy_from_slice(src);
+         if nbytes > dest.len() - header_len { return Err(-1); }
+         dest[header_len..header_len+nbytes].copy_from_slice(src);
          compressed_size = nbytes;
          flags |= BLOSC_MEMCPYED;
-         flags &= !BLOSC_DOSHUFFLE;
-         flags &= !BLOSC_DOBITSHUFFLE;
+         // No bstarts for memcpy
+         actual_data_offset = header_len;
+    } else {
+        // Write stream size
+        dest[data_offset..data_offset+4].copy_from_slice(&(compressed_size as u32).to_le_bytes());
+        compressed_size += stream_overhead;
+        
+        // Set DONT_SPLIT flag (0x10)
+        flags |= 0x10;
+
+        if will_add_bstarts {
+            // Write bstarts array (offset where compressed data begins for single block)
+            let bstart_offset = header_len;
+            dest[bstart_offset..bstart_offset+4].copy_from_slice(&(data_offset as u32).to_le_bytes());
+            actual_data_offset = data_offset;
+        } else {
+            // Standard header, data follows header
+            actual_data_offset = header_len;
+        }
     }
 
     // 3. Header
-    let cbytes = compressed_size + 16;
-    let header = create_header(nbytes, blocksize, cbytes, typesize, flags, compressor);
-    dest[0..16].copy_from_slice(&header);
+    let cbytes = compressed_size + actual_data_offset;
+    if extended_header {
+        let header = create_header_blosc2(nbytes, blocksize, cbytes, typesize, flags, compressor, filters, filters_meta);
+        dest[0..BLOSC_EXTENDED_HEADER_LENGTH].copy_from_slice(&header);
+    } else {
+        let header = create_header_blosc1(nbytes, blocksize, cbytes, typesize, flags, compressor);
+        dest[0..BLOSC_MIN_HEADER_LENGTH].copy_from_slice(&header);
+    }
     
     Ok(cbytes)
 }
 
-fn decompress_blocks(
-    compressor: u8, 
-    compressed_data: &[u8], 
-    dest: &mut [u8], 
-    blocksize: usize, 
-    nbytes: usize
-) -> Result<(), i32> {
-    let mut src_pos = 0;
-    let mut dest_pos = 0;
-    
-    while src_pos < compressed_data.len() && dest_pos < nbytes {
-        if src_pos + 4 > compressed_data.len() { println!("Fail block header"); return Err(-1); }
-        let cblock_size = u32::from_le_bytes([
-            compressed_data[src_pos],
-            compressed_data[src_pos+1],
-            compressed_data[src_pos+2],
-            compressed_data[src_pos+3]
-        ]) as usize;
-        src_pos += 4;
-        
-        if cblock_size == 0 {
-            continue;
-        }
-        
-        if src_pos + cblock_size > compressed_data.len() { println!("Fail block size"); return Err(-1); }
-        let cblock = &compressed_data[src_pos .. src_pos + cblock_size];
-        src_pos += cblock_size;
-        
-        let current_blocksize = std::cmp::min(blocksize, nbytes - dest_pos);
-        let dest_slice = &mut dest[dest_pos .. dest_pos + current_blocksize];
-        
-        let size = decompress_buffer(compressor, cblock, dest_slice)?;
-        if size != current_blocksize { println!("Fail decompress size: {} != {}", size, current_blocksize); return Err(-1); }
-        dest_pos += current_blocksize;
+pub fn decompress(src: &[u8], dest: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
+    if src.len() < BLOSC_MIN_HEADER_LENGTH {
+        return Err("Source buffer too small for header".into());
     }
-    Ok(())
-}
 
-pub fn decompress(src: &[u8], dest: &mut [u8]) -> Result<usize, i32> {
-    if src.len() < 16 { return Err(-1); }
+    // Read version to determine header size
+    let version = src[0];
+    let header_len = if version == BLOSC2_VERSION_FORMAT_STABLE || version == BLOSC2_VERSION_FORMAT_BETA1 || version == BLOSC2_VERSION_FORMAT_ALPHA {
+        BLOSC_EXTENDED_HEADER_LENGTH
+    } else {
+        BLOSC_MIN_HEADER_LENGTH
+    };
     
-    // Parse header
+    if src.len() < header_len {
+        return Err("Source buffer too small for extended header".into());
+    }
+
+    let (nbytes, cbytes, blocksize) = crate::api::blosc2_cbuffer_sizes(src);
+
+    if dest.len() < nbytes {
+        return Err("Destination buffer too small".into());
+    }
+
     let flags = src[2];
     let compressor = (flags >> 5) & 0x7;
     let typesize = src[3] as usize;
-    let nbytes = u32::from_le_bytes([src[4], src[5], src[6], src[7]]) as usize;
-    let blocksize = u32::from_le_bytes([src[8], src[9], src[10], src[11]]) as usize;
-    let cbytes = u32::from_le_bytes([src[12], src[13], src[14], src[15]]) as usize;
-    
-    let mut header_len = 16;
-    let mut extended_header = false;
-    if (flags & 0x05) == 0x05 {
-        extended_header = true;
-        header_len += 16;
+
+    let mut doshuffle = (flags & BLOSC_DOSHUFFLE) != 0;
+    let mut dobitshuffle = (flags & BLOSC_DOBITSHUFFLE) != 0;
+
+    // Check for extended header marker (both flags set)
+    if (flags & BLOSC_DOSHUFFLE) != 0 && (flags & BLOSC_DOBITSHUFFLE) != 0 {
+        doshuffle = false;
+        dobitshuffle = false;
+        
+        if header_len == BLOSC_EXTENDED_HEADER_LENGTH {
+            let filters = &src[16..22];
+            for &f in filters {
+                if f == BLOSC_SHUFFLE {
+                    doshuffle = true;
+                } else if f == BLOSC_BITSHUFFLE {
+                    dobitshuffle = true;
+                }
+            }
+        }
     }
 
-    if src.len() < cbytes { return Err(-1); }
-    if dest.len() < nbytes { return Err(-1); }
-    
-    let compressed_data = &src[header_len..cbytes];
-    
-    // Handle Memcpy
+    doshuffle = doshuffle && typesize > 1;
+    dobitshuffle = dobitshuffle && blocksize >= typesize;
+
     if (flags & BLOSC_MEMCPYED) != 0 {
-        dest[0..nbytes].copy_from_slice(compressed_data);
+        // Copy from after header to dest
+        dest[0..nbytes].copy_from_slice(&src[header_len..header_len+nbytes]);
         return Ok(nbytes);
     }
     
-    // Decompress
-    let mut use_filters = (flags & BLOSC_DOSHUFFLE) != 0 || (flags & BLOSC_DOBITSHUFFLE) != 0;
-    let mut do_shuffle = (flags & BLOSC_DOSHUFFLE) != 0;
-    let mut do_bitshuffle = (flags & BLOSC_DOBITSHUFFLE) != 0;
+    // Calculate number of blocks
+    let nblocks = if blocksize == 0 {
+        0
+    } else {
+        (nbytes + blocksize - 1) / blocksize
+    };
+
+    // For extended headers with actual compression (not memcpy), read bstarts array
+    let mut bstarts = Vec::new();
     
-    if extended_header {
-        do_shuffle = false;
-        do_bitshuffle = false;
-        use_filters = false;
+    if nblocks > 1 {
+        // Multiple blocks: read bstarts array
+        if src.len() < header_len + nblocks * 4 {
+            return Err("Buffer too small for bstarts array".into());
+        }
         
-        for i in 0..8 {
-            let filter = src[16 + i];
-            if filter == 1 { do_shuffle = true; use_filters = true; }
-            if filter == 2 { do_bitshuffle = true; use_filters = true; }
+        for i in 0..nblocks {
+            let offset = header_len + i * 4;
+            let bstart = u32::from_le_bytes([src[offset], src[offset+1], src[offset+2], src[offset+3]]) as usize;
+            bstarts.push(bstart);
+        }
+    } else if nblocks == 1 {
+        // Single block handling depends on header type
+        if header_len == BLOSC_EXTENDED_HEADER_LENGTH {
+            // Extended header (Blosc2): Always has bstarts array, even for single block
+            if src.len() < header_len + 4 {
+                return Err("Buffer too small for bstarts array".into());
+            }
+            let bstart = u32::from_le_bytes([src[header_len], src[header_len+1], src[header_len+2], src[header_len+3]]) as usize;
+            bstarts.push(bstart);
+        } else {
+            // Blosc1 format (16-byte header): No bstarts, data starts immediately after header
+            bstarts.push(header_len);
         }
     }
 
-    let not_split = (flags & BLOSC_NOT_SPLIT) != 0;
+    // Decompress each block
+    let mut dest_offset = 0;
     
-    if use_filters {
-        let mut tmp_buf = vec![0u8; nbytes];
+    for i in 0..nblocks {
+        let src_offset = bstarts[i];
         
-        if not_split {
-             let size = decompress_buffer(compressor, compressed_data, &mut tmp_buf)?;
-             if size != nbytes { return Err(-1); }
+        // Determine block size in compressed buffer
+        let block_cbytes = if i + 1 < nblocks {
+            bstarts[i + 1] - src_offset
         } else {
-             decompress_blocks(compressor, compressed_data, &mut tmp_buf, blocksize, nbytes)?;
-        }
+            cbytes - src_offset
+        };
         
-        if do_shuffle {
-            filters::unshuffle(typesize, nbytes, &tmp_buf, dest);
-        } else if do_bitshuffle {
-            filters::bitunshuffle(typesize, nbytes, &tmp_buf, dest).map_err(|_| -1)?;
-        }
-    } else {
-        if not_split {
-             let size = decompress_buffer(compressor, compressed_data, dest)?;
-             if size != nbytes { return Err(-1); }
+        // Determine uncompressed block size
+        let block_nbytes = if i == nblocks - 1 && nbytes % blocksize != 0 {
+            nbytes % blocksize  // Last block may be smaller
         } else {
-             decompress_blocks(compressor, compressed_data, dest, blocksize, nbytes)?;
+            blocksize
+        };
+
+        if src_offset + block_cbytes > src.len() {
+             return Err("Compressed data is truncated".into());
         }
+
+        let content = &src[src_offset..src_offset + block_cbytes];
+
+        let mut content_offset = 0;
+        let mut block_dest_offset = 0;
+        
+        let use_temp = doshuffle || dobitshuffle;
+        let mut temp_buf = if use_temp { vec![0u8; block_nbytes] } else { Vec::new() };
+        {
+            let target_slice = if use_temp { &mut temp_buf[..] } else { &mut dest[dest_offset..dest_offset + block_nbytes] };
+            
+            while content_offset < block_cbytes {
+                if content_offset + 4 > block_cbytes {
+                     return Err("Block too small for chunk size".into());
+                }
+                let chunk_cbytes = u32::from_le_bytes([
+                    content[content_offset], 
+                    content[content_offset+1], 
+                    content[content_offset+2], 
+                    content[content_offset+3]
+                ]) as usize;
+                content_offset += 4;
+                
+                if content_offset + chunk_cbytes > block_cbytes {
+                    return Err("Chunk size exceeds block size".into());
+                }
+                
+                let chunk_content = &content[content_offset..content_offset + chunk_cbytes];
+                content_offset += chunk_cbytes;
+                
+                let dest_slice = &mut target_slice[block_dest_offset..block_nbytes];
+                
+                let chunk_decompressed_size = match compressor {
+                    BLOSC_BLOSCLZ => {
+                        blosclz::decompress(chunk_content, dest_slice)
+                    },
+                    BLOSC_LZ4 | BLOSC_LZ4HC => {
+                        lz4_flex::decompress_into(chunk_content, dest_slice).map_err(|e| format!("LZ4 error: {}", e))?
+                    },
+                    BLOSC_SNAPPY => {
+                        let mut decoder = snap::raw::Decoder::new();
+                        decoder.decompress(chunk_content, dest_slice).map_err(|e| format!("Snappy error: {}", e))?
+                    },
+                    BLOSC_ZLIB => {
+                        let mut decoder = flate2::read::ZlibDecoder::new(chunk_content);
+                        let mut writer = std::io::Cursor::new(dest_slice);
+                        std::io::copy(&mut decoder, &mut writer).map_err(|e| format!("Zlib error: {}", e))? as usize
+                    },
+                    BLOSC_ZSTD => {
+                        zstd::bulk::decompress_to_buffer(chunk_content, dest_slice).map_err(|e| format!("Zstd error: {}", e))?
+                    },
+                    _ => return Err(format!("Unsupported compressor: {}", compressor).into()),
+                };
+                
+                block_dest_offset += chunk_decompressed_size;
+            }
+            
+            if block_dest_offset != block_nbytes {
+                return Err(format!("Block {} decompression size mismatch: expected {}, got {}", i, block_nbytes, block_dest_offset).into());
+            }
+        }
+
+        if use_temp {
+            if doshuffle {
+                filters::unshuffle(typesize, block_nbytes, &temp_buf, &mut dest[dest_offset..dest_offset + block_nbytes]);
+            } else {
+                filters::bitunshuffle(typesize, block_nbytes, &temp_buf, &mut dest[dest_offset..dest_offset + block_nbytes])
+                    .map_err(|e| format!("Bitunshuffle error: {}", e))?;
+            }
+        }
+
+        dest_offset += block_dest_offset;
     }
     
     Ok(nbytes)
 }
 
 pub fn getitem(src: &[u8], start: usize, nitems: usize, dest: &mut [u8]) -> Result<usize, i32> {
-    if src.len() < 16 { return Err(-1); }
+    if src.len() < BLOSC_MIN_HEADER_LENGTH { return Err(-1); }
     
-    // Parse header
-    let typesize = src[3] as usize;
-    let nbytes = u32::from_le_bytes([src[4], src[5], src[6], src[7]]) as usize;
-    
-    if typesize == 0 { return Err(-1); }
-    
-    let start_byte = start * typesize;
-    let num_bytes = nitems * typesize;
-    
-    if start_byte + num_bytes > nbytes { return Err(-1); }
-    if dest.len() < num_bytes { return Err(-1); }
-    
-    // For now, we decompress the whole block. 
-    // Optimization: If memcpyed, we can just copy.
+    // Check version to determine header size
+    let version = src[0];
+    let header_len = if version == BLOSC2_VERSION_FORMAT_STABLE || version == BLOSC2_VERSION_FORMAT_BETA1 || version == BLOSC2_VERSION_FORMAT_ALPHA {
+        BLOSC_EXTENDED_HEADER_LENGTH
+    } else {
+        BLOSC_MIN_HEADER_LENGTH
+    };
     
     let flags = src[2];
+    let compressor = (flags >> 5) & 0x7;
+    let typesize = src[3] as usize;
+    let nbytes = u32::from_le_bytes(src[4..8].try_into().unwrap()) as usize;
+    let blocksize = u32::from_le_bytes(src[8..12].try_into().unwrap()) as usize;
+    let cbytes = u32::from_le_bytes(src[12..16].try_into().unwrap()) as usize;
+    
+    if src.len() < cbytes { return Err(-1); }
+    
+    let start_byte = start * typesize;
+    let end_byte = (start + nitems) * typesize;
+    if end_byte > nbytes { return Err(-1); }
+    if dest.len() < end_byte - start_byte { return Err(-1); }
+    
     if (flags & BLOSC_MEMCPYED) != 0 {
-        let cbytes = u32::from_le_bytes([src[12], src[13], src[14], src[15]]) as usize;
-        if src.len() < cbytes { return Err(-1); }
-        let compressed_data = &src[16..cbytes];
-        dest[0..num_bytes].copy_from_slice(&compressed_data[start_byte..start_byte+num_bytes]);
-        return Ok(num_bytes);
+        dest.copy_from_slice(&src[header_len + start_byte .. header_len + end_byte]);
+        return Ok(end_byte - start_byte);
     }
-
-    // Full decompression needed
-    let mut tmp_buf = vec![0u8; nbytes];
-    decompress(src, &mut tmp_buf)?;
     
-    dest[0..num_bytes].copy_from_slice(&tmp_buf[start_byte..start_byte+num_bytes]);
+    let nblocks = if nbytes == 0 { 0 } else { (nbytes + blocksize - 1) / blocksize };
     
-    Ok(num_bytes)
+    let start_block = start_byte / blocksize;
+    let end_block = (end_byte - 1) / blocksize;
+    
+    let mut src_offset = header_len;
+    let mut block_sizes = Vec::new();
+    if nblocks > 1 {
+        src_offset += nblocks * 4;
+        for i in 0..nblocks {
+            let bs = u32::from_le_bytes(src[header_len + i*4 .. header_len + i*4 + 4].try_into().unwrap()) as usize;
+            block_sizes.push(bs);
+        }
+    } else {
+        block_sizes.push(cbytes - header_len);
+    }
+    
+    // Skip blocks before start_block
+    for i in 0..start_block {
+        src_offset += block_sizes[i];
+    }
+    
+    let mut dest_offset = 0;
+    
+    for i in start_block..=end_block {
+        let cblock_size = block_sizes[i];
+        let current_block_size = if i == nblocks - 1 {
+            nbytes - (i * blocksize)
+        } else {
+            blocksize
+        };
+        
+        let src_block = &src[src_offset .. src_offset + cblock_size];
+        
+        // We need to decompress the whole block to extract items
+        let mut block_buf = vec![0u8; current_block_size];
+        
+        let mut temp_buf = if (flags & (BLOSC_DOSHUFFLE | BLOSC_DOBITSHUFFLE)) != 0 {
+            vec![0u8; current_block_size]
+        } else {
+            Vec::new()
+        };
+        
+        if temp_buf.is_empty() {
+             let decompressed_size = decompress_buffer(compressor, src_block, &mut block_buf)?;
+             if decompressed_size != current_block_size { return Err(-1); }
+        } else {
+             let decompressed_size = decompress_buffer(compressor, src_block, &mut temp_buf)?;
+             if decompressed_size != current_block_size { return Err(-1); }
+             
+             if (flags & BLOSC_DOSHUFFLE) != 0 {
+                filters::unshuffle(typesize, current_block_size, &temp_buf, &mut block_buf);
+             } else if (flags & BLOSC_DOBITSHUFFLE) != 0 {
+                filters::bitunshuffle(typesize, current_block_size, &temp_buf, &mut block_buf).map_err(|_| -1)?;
+             }
+        }
+        
+        // Copy relevant part
+        let block_start = i * blocksize;
+        let block_end = block_start + current_block_size;
+        
+        let copy_start = std::cmp::max(start_byte, block_start);
+        let copy_end = std::cmp::min(end_byte, block_end);
+        
+        let local_start = copy_start - block_start;
+        let local_end = copy_end - block_start;
+        let len = local_end - local_start;
+        
+        dest[dest_offset .. dest_offset + len].copy_from_slice(&block_buf[local_start..local_end]);
+        
+        src_offset += cblock_size;
+        dest_offset += len;
+    }
+    
+    Ok(dest_offset)
 }

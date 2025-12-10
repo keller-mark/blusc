@@ -4,9 +4,9 @@ use blusc::api::{
     blosc2_create_dctx as blusc_blosc2_create_dctx,
     blosc2_decompress_ctx as blusc_blosc2_decompress_ctx,
     BLOSC2_CPARAMS_DEFAULTS as BLUSC_BLOSC2_CPARAMS_DEFAULTS,
-    BLOSC2_MAX_OVERHEAD as BLUSC_BLOSC2_MAX_OVERHEAD,
     BLOSC2_DPARAMS_DEFAULTS as BLUSC_BLOSC2_DPARAMS_DEFAULTS,
 };
+use blusc::BLOSC2_MAX_OVERHEAD as BLUSC_BLOSC2_MAX_OVERHEAD;
 
 pub fn convert_from_bytes_slice<T: bytemuck::Pod>(from: &[u8]) -> Vec<T> {
     bytemuck::allocation::pod_collect_to_vec(from)
@@ -81,7 +81,7 @@ fn codec_blosc_round_trip1() {
     // TODO: fix this. internally, blosc2_create_dctx initializes a struct using the default CPARAMS.
     // is this correct, or do we need to specify the parameters (like during compression)? 
     let mut dparams = BLUSC_BLOSC2_DPARAMS_DEFAULTS;
-    dparams.nthreads = 1 as i32;
+    dparams.nthreads = 1;
     let dctx = blusc_blosc2_create_dctx(dparams);
 
     let mut decoded = vec![0u8; bytes.len()];
@@ -114,12 +114,13 @@ fn codec_blosc_round_trip2() {
     let mut compressed = vec![0u8; bytes.len() + BLUSC_BLOSC2_MAX_OVERHEAD as usize];
     let csize = blusc_blosc2_compress_ctx(&cctx, &bytes, &mut compressed);
 
+    println!("Compressed size: {}", csize);
     assert!(csize > 0);
     compressed.truncate(csize as usize);
 
 
     let mut dparams = BLUSC_BLOSC2_DPARAMS_DEFAULTS;
-    dparams.nthreads = 1 as i32;
+    dparams.nthreads = 1;
     let dctx = blusc_blosc2_create_dctx(dparams);
 
     let mut decoded = vec![0u8; bytes.len()];

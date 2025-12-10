@@ -24,10 +24,63 @@ use blusc::api::{
     BLOSC2_DPARAMS_DEFAULTS as BLUSC_BLOSC2_DPARAMS_DEFAULTS,
 };
 
+use ctor::{ctor, dtor};
+
+#[ctor]
+fn blosc2_init() {
+    unsafe {
+        bound_blosc2_init();
+    }
+}
+
+#[dtor]
+fn blosc2_cleanup() {
+    unsafe {
+        bound_blosc2_destroy();
+    }
+}
+
+#[test]
+fn compare_compressed_bytes() {
+    unsafe {
+
+        let text =
+            "I am here writing some very cool and novel words which I will compress and check";
+
+        let bytes = text.as_bytes();
+
+        let mut compressed_bound = vec![0; bytes.len() * 2];
+        let stat_bound = bound_blosc2_compress(
+            0,
+            BOUND_BLOSC_NOSHUFFLE as _,
+            std::mem::size_of::<u8>() as i32,
+            bytes.as_ptr().cast(),
+            bytes.len() as i32,
+            compressed_bound.as_mut_ptr().cast(),
+            compressed_bound.len() as i32,
+        );
+        assert!(stat_bound > 0);
+        compressed_bound.truncate(stat_bound as usize);
+
+        let mut compressed_blusc = vec![0; bytes.len() * 2];
+        let stat_blusc: i32 = blusc_blosc2_compress(
+            0,
+            BOUND_BLOSC_NOSHUFFLE as _,
+            std::mem::size_of::<u8>(),
+            bytes,
+            &mut compressed_blusc,
+        );
+        assert!(stat_blusc > 0);
+        compressed_blusc.truncate(stat_blusc as usize);
+
+        assert_eq!(compressed_bound, compressed_blusc);
+
+    }
+}
+
 #[test]
 fn roundtrip_blosc_compress_then_blusc_decompress() {
     unsafe {
-        bound_blosc2_init();
 
         let text =
             "I am here writing some very cool and novel words which I will compress and decompress";
@@ -56,14 +109,12 @@ fn roundtrip_blosc_compress_then_blusc_decompress() {
 
         assert_eq!(text, std::str::from_utf8(&outtext).unwrap());
 
-        bound_blosc2_destroy();
     }
 }
 
 #[test]
 fn roundtrip_blusc_compress_then_blosc_decompress() {
     unsafe {
-        bound_blosc2_init();
 
         let text =
             "I am here writing some very cool and novel words which I will compress and decompress";
@@ -92,7 +143,6 @@ fn roundtrip_blusc_compress_then_blosc_decompress() {
 
         assert_eq!(text, std::str::from_utf8(&outtext).unwrap());
 
-        bound_blosc2_destroy();
     }
 }
 
@@ -169,6 +219,7 @@ fn floats_roundtrip_blosc_compress_then_blusc_decompress() {
     assert_eq!(src, result);
 }
 
+
 #[test]
 fn floats_roundtrip_blusc_compress_then_blosc_decompress() {
     // generate numerical data
@@ -207,6 +258,56 @@ fn floats_roundtrip_blusc_compress_then_blosc_decompress() {
         println!("Rust compressed to {} bytes", rsize);
         println!("Header: {:02x?}", &dest[0..16]);
         println!("First 32 bytes of compressed data: {:02x?}", &dest[16..48.min(rsize as usize)]);
+
+        /*
+        // DEBUG: Compress with Blosc (C) to compare
+        unsafe {
+            let mut cparams = BOUND_BLOSC2_CPARAMS_DEFAULTS;
+            cparams.clevel = 5;
+            cparams.typesize = typesize as i32;
+            cparams.compcode = 0; // BLOSCLZ
+            let context = bound_blosc2_create_cctx(cparams);
+            
+            let mut c_dest = vec![0u8; dest_size];
+            let c_rsize = bound_blosc2_compress_ctx(
+                context,
+                src.as_ptr() as *const std::ffi::c_void,
+                src_size as i32,
+                c_dest.as_mut_ptr() as *mut std::ffi::c_void,
+                c_dest.len() as i32,
+            );
+            println!("C compressed to {} bytes", c_rsize);
+            if c_rsize > 0 {
+                println!("C Header: {:02x?}", &c_dest[0..16]);
+                println!("C First 32 bytes of compressed data: {:02x?}", &c_dest[16..48.min(c_rsize as usize)]);
+                
+                // Compare headers
+                if dest[0..32] != c_dest[0..32] {
+                    println!("Headers differ!");
+                    println!("Rust: {:02x?}", &dest[0..32]);
+                    println!("C:    {:02x?}", &c_dest[0..32]);
+                }
+                
+                // Compare bstarts
+                if dest[32..36] != c_dest[32..36] {
+                    println!("Bstarts differ!");
+                    println!("Rust: {:02x?}", &dest[32..36]);
+                    println!("C:    {:02x?}", &c_dest[32..36]);
+                }
+                
+                // Compare compressed size
+                if dest[36..40] != c_dest[36..40] {
+                    println!("Compressed size field differs!");
+                    println!("Rust: {:02x?}", &dest[36..40]);
+                    println!("C:    {:02x?}", &c_dest[36..40]);
+                }
+                
+                // Compare data
+                // Note: data might differ if compression algorithm is slightly different
+            }
+        }
+        */
+
         dest.into_iter().take(rsize as usize).collect()
     };
 
