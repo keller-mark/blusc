@@ -25,3 +25,4 @@ snap = "^1.1.1"
 blosc2-src = { version = "0.1.4", features = ["zstd"] }
 bytemuck = { version = "1.14.0", features = ["extern_crate_alloc", "must_cast", "min_const_generics"] }
 bytes = "1.7.0"
+ctor = "0.2"

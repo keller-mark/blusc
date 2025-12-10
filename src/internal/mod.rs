@@ -168,29 +168,32 @@ fn compress_internal(
     }
 
     // 2. Compress
-    if dest.len() < data_offset { return Err(-1); }
-    let max_compressed_size = dest.len() - data_offset;
+    // We need to reserve space for the stream size (4 bytes) because we are not splitting
+    // and treating the block as a single stream.
+    let stream_overhead = 4;
+    if dest.len() < data_offset + stream_overhead { return Err(-1); }
+    let max_compressed_size = dest.len() - data_offset - stream_overhead;
     let mut compressed_size;
     
     match compressor {
         BLOSC_BLOSCLZ => {
-            compressed_size = blosclz::compress(clevel, filtered_src, &mut dest[data_offset..]);
+            compressed_size = blosclz::compress(clevel, filtered_src, &mut dest[data_offset + stream_overhead..]);
         },
         BLOSC_LZ4 => {
-             match lz4_flex::block::compress_into(filtered_src, &mut dest[data_offset..]) {
+             match lz4_flex::block::compress_into(filtered_src, &mut dest[data_offset + stream_overhead..]) {
                  Ok(size) => compressed_size = size,
                  Err(_) => compressed_size = 0,
              }
         },
         BLOSC_SNAPPY => {
             let mut encoder = snap::raw::Encoder::new();
-            match encoder.compress(filtered_src, &mut dest[data_offset..]) {
+            match encoder.compress(filtered_src, &mut dest[data_offset + stream_overhead..]) {
                 Ok(size) => compressed_size = size,
                 Err(_) => compressed_size = 0,
             }
         },
         BLOSC_ZLIB => {
-            let cursor = std::io::Cursor::new(&mut dest[data_offset..]);
+            let cursor = std::io::Cursor::new(&mut dest[data_offset + stream_overhead..]);
             let mut encoder = flate2::write::ZlibEncoder::new(cursor, flate2::Compression::new(clevel as u32));
             if encoder.write_all(filtered_src).is_ok() {
                  match encoder.finish() {
@@ -204,7 +207,7 @@ fn compress_internal(
             }
         },
         BLOSC_ZSTD => {
-            let cursor = std::io::Cursor::new(&mut dest[data_offset..]);
+            let cursor = std::io::Cursor::new(&mut dest[data_offset + stream_overhead..]);
             let mut encoder = zstd::stream::write::Encoder::new(cursor, clevel).map_err(|_| -1)?;
             if encoder.write_all(filtered_src).is_ok() {
                  match encoder.finish() {
@@ -222,9 +225,9 @@ fn compress_internal(
     println!("Compressed size: {}", compressed_size);
     
     let mut actual_data_offset = header_len;
-    if compressed_size == 0 || compressed_size >= nbytes {
+    if compressed_size == 0 || compressed_size + stream_overhead >= nbytes {
          // Memcpy
-         if nbytes > max_compressed_size { return Err(-1); }
+         if nbytes > dest.len() - header_len { return Err(-1); }
          dest[header_len..header_len+nbytes].copy_from_slice(src);
          compressed_size = nbytes;
          flags |= BLOSC_MEMCPYED;
@@ -234,11 +237,23 @@ fn compress_internal(
          }
          // No bstarts for memcpy
          actual_data_offset = header_len;
-    } else if will_add_bstarts {
-        // Write bstarts array (offset where compressed data begins for single block)
-        let bstart_offset = header_len;
-        dest[bstart_offset..bstart_offset+4].copy_from_slice(&(data_offset as u32).to_le_bytes());
-        actual_data_offset = data_offset;
+    } else {
+        // Write stream size
+        dest[data_offset..data_offset+4].copy_from_slice(&(compressed_size as u32).to_le_bytes());
+        compressed_size += stream_overhead;
+        
+        // Set DONT_SPLIT flag (0x10)
+        flags |= 0x10;
+
+        if will_add_bstarts {
+            // Write bstarts array (offset where compressed data begins for single block)
+            let bstart_offset = header_len;
+            dest[bstart_offset..bstart_offset+4].copy_from_slice(&(data_offset as u32).to_le_bytes());
+            actual_data_offset = data_offset;
+        } else {
+            // Standard header, data follows header
+            actual_data_offset = header_len;
+        }
     }
 
     // 3. Header

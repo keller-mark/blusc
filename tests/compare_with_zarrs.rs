@@ -81,7 +81,7 @@ fn codec_blosc_round_trip1() {
     // TODO: fix this. internally, blosc2_create_dctx initializes a struct using the default CPARAMS.
     // is this correct, or do we need to specify the parameters (like during compression)? 
     let mut dparams = BLUSC_BLOSC2_DPARAMS_DEFAULTS;
-    dparams.nthreads = 1 as i32;
+    dparams.nthreads = 1;
     let dctx = blusc_blosc2_create_dctx(dparams);
 
     let mut decoded = vec![0u8; bytes.len()];
@@ -120,7 +120,7 @@ fn codec_blosc_round_trip2() {
 
 
     let mut dparams = BLUSC_BLOSC2_DPARAMS_DEFAULTS;
-    dparams.nthreads = 1 as i32;
+    dparams.nthreads = 1;
     let dctx = blusc_blosc2_create_dctx(dparams);
 
     let mut decoded = vec![0u8; bytes.len()];

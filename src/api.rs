@@ -12,30 +12,41 @@ pub struct Blosc2Context {
 // Structs
 // Note: these may need to be adjusted so that the implementation works correctly,
 // but we want to use the proper Rust idioms when porting the structs.
+#[repr(C)]
 pub struct Blosc2Cparams {
-    pub compcode: i32,
-    pub clevel: i32,
+    // Reference: context.h in the original blosc2 codebase
+    pub compcode: u8,
+    pub compcode_meta: u8,
+    pub clevel: u8,
     pub use_dict: i32,
     pub typesize: i32,
-    pub nthreads: i32,
+    pub nthreads: i16,
     pub blocksize: i32,
     pub splitmode: i32,
     pub schunk: *mut c_void,
-    pub filters: [i32; 6],
-    pub filters_meta: [i32; 6],
-    pub compcode_meta: i32,
-    pub delta: i32,
+    pub filters: [u8; BLOSC2_MAX_FILTERS as usize],
+    pub filters_meta: [u8; BLOSC2_MAX_FILTERS as usize],
+    pub prefilter: *mut c_void,
+    pub preparams: *mut c_void,
+    pub tuner_params: *mut c_void,
+    pub tuner_id: i32,
+    pub instr_codec: bool,
+    pub codec_params: *mut c_void,
+    pub filter_params: [*mut c_void; BLOSC2_MAX_FILTERS as usize],
 }
 
 #[repr(C)]
 pub struct Blosc2Dparams {
-    pub nthreads: i32,
+    pub nthreads: i16,
     pub schunk: *mut c_void,
+    pub postfilter: *mut c_void,
+    pub postparams: *mut c_void,
 }
 
 // Default constants
 pub const BLOSC2_CPARAMS_DEFAULTS: Blosc2Cparams = Blosc2Cparams {
-    compcode: BLOSC_BLOSCLZ as i32,
+    compcode: BLOSC_BLOSCLZ,
+    compcode_meta: 0,
     clevel: 5,
     use_dict: 0,
     typesize: 8,
@@ -43,15 +54,22 @@ pub const BLOSC2_CPARAMS_DEFAULTS: Blosc2Cparams = Blosc2Cparams {
     blocksize: 0,
     splitmode: BLOSC_FORWARD_COMPAT_SPLIT as i32,
     schunk: std::ptr::null_mut(),
-    filters: [BLOSC_NOFILTER as i32; 6],
-    filters_meta: [0; 6],
-    compcode_meta: 0,
-    delta: 0,
+    filters: [BLOSC_NOFILTER; BLOSC2_MAX_FILTERS as usize],
+    filters_meta: [0; BLOSC2_MAX_FILTERS as usize],
+    prefilter: std::ptr::null_mut(),
+    preparams: std::ptr::null_mut(),
+    tuner_params: std::ptr::null_mut(),
+    tuner_id: 0,
+    instr_codec: false,
+    codec_params: std::ptr::null_mut(),
+    filter_params: [std::ptr::null_mut(); BLOSC2_MAX_FILTERS as usize],
 };
 
 pub const BLOSC2_DPARAMS_DEFAULTS: Blosc2Dparams = Blosc2Dparams {
     nthreads: 1,
     schunk: std::ptr::null_mut(),
+    postfilter: std::ptr::null_mut(),
+    postparams: std::ptr::null_mut(),
 };
 
 
@@ -158,25 +176,21 @@ pub fn blosc2_compress_ctx(
     src: &[u8],
     dest: &mut [u8],
 ) -> i32 {
-    let clevel = context.cparams.clevel;
+    let clevel = context.cparams.clevel as i32;
     let typesize = context.cparams.typesize as usize;
     let compressor = context.cparams.compcode;
     
     let mut doshuffle = BLOSC_NOSHUFFLE as i32;
     for &f in context.cparams.filters.iter() {
-        if f == BLOSC_SHUFFLE as i32 { doshuffle = BLOSC_SHUFFLE as i32; }
-        if f == BLOSC_BITSHUFFLE as i32 { doshuffle = BLOSC_BITSHUFFLE as i32; }
+        if f == BLOSC_SHUFFLE { doshuffle = BLOSC_SHUFFLE as i32; }
+        if f == BLOSC_BITSHUFFLE { doshuffle = BLOSC_BITSHUFFLE as i32; }
     }
     
-    // Convert filters from i32 array to u8 array
-    let mut filters = [BLOSC_NOFILTER as u8; 6];
-    let mut filters_meta = [0u8; 6];
-    for i in 0..6 {
-        filters[i] = context.cparams.filters[i] as u8;
-        filters_meta[i] = context.cparams.filters_meta[i] as u8;
-    }
+    // Filters are already u8 array
+    let filters = context.cparams.filters;
+    let filters_meta = context.cparams.filters_meta;
     
-    match internal::compress_extended(clevel, doshuffle, typesize, src, dest, compressor as u8, &filters, &filters_meta) {
+    match internal::compress_extended(clevel, doshuffle, typesize, src, dest, compressor, &filters, &filters_meta) {
         Ok(size) => size as i32,
         Err(_) => 0,
     }
