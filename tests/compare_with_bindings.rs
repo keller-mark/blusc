@@ -219,7 +219,7 @@ fn floats_roundtrip_blosc_compress_then_blusc_decompress() {
     assert_eq!(src, result);
 }
 
-/*
+
 #[test]
 fn floats_roundtrip_blusc_compress_then_blosc_decompress() {
     // generate numerical data
@@ -348,4 +348,3 @@ fn floats_roundtrip_blusc_compress_then_blosc_decompress() {
     // check if the values in both arrays are equal
     assert_eq!(src, result);
 }
-*/
