@@ -121,6 +121,18 @@ pub fn compress_extended(
     compress_internal(clevel, doshuffle, typesize, src, dest, compressor, true, filters, filters_meta)
 }
 
+fn split_block(compressor: u8, clevel: i32, typesize: usize, blocksize: usize, doshuffle: i32) -> bool {
+    if doshuffle != BLOSC_SHUFFLE as i32 { return false; }
+    
+    let split = match compressor {
+        BLOSC_BLOSCLZ | BLOSC_LZ4 => true,
+        BLOSC_ZSTD if clevel <= 5 => true,
+        _ => false,
+    };
+    
+    split && (typesize <= 16) && (blocksize / typesize >= BLOSC_MIN_BUFFERSIZE)
+}
+
 fn compress_internal(
     clevel: i32,
     doshuffle: i32,
@@ -159,10 +171,13 @@ fn compress_internal(
         flags |= BLOSC_DOSHUFFLE | BLOSC_DOBITSHUFFLE;
     }
 
-    // Always set DONT_SPLIT (0x10) because we are not splitting blocks yet
+    let split = split_block(compressor, clevel, typesize, nbytes, doshuffle);
+    let nstreams = if split { typesize } else { 1 };
+
+    // Always set DONT_SPLIT (0x10) if we are not splitting blocks
     // But only if we are not doing initial memcpy (clevel == 0)
     // And if buffer is large enough (>= BLOSC_MIN_BUFFERSIZE)
-    if clevel != 0 && nbytes >= BLOSC_MIN_BUFFERSIZE {
+    if !split && clevel != 0 && nbytes >= BLOSC_MIN_BUFFERSIZE {
         flags |= 0x10;
     }
 
@@ -174,63 +189,81 @@ fn compress_internal(
     }
 
     // 2. Compress
-    // We need to reserve space for the stream size (4 bytes) because we are not splitting
-    // and treating the block as a single stream.
-    let stream_overhead = 4;
-    if dest.len() < data_offset + stream_overhead { return Err(-1); }
-    let _max_compressed_size = dest.len() - data_offset - stream_overhead;
-    let mut compressed_size;
-    
-    match compressor {
-        BLOSC_BLOSCLZ => {
-            compressed_size = blosclz::compress(clevel, filtered_src, &mut dest[data_offset + stream_overhead..]);
-        },
-        BLOSC_LZ4 => {
-             match lz4_flex::block::compress_into(filtered_src, &mut dest[data_offset + stream_overhead..]) {
-                 Ok(size) => compressed_size = size,
-                 Err(_) => compressed_size = 0,
-             }
-        },
-        BLOSC_SNAPPY => {
-            let mut encoder = snap::raw::Encoder::new();
-            match encoder.compress(filtered_src, &mut dest[data_offset + stream_overhead..]) {
-                Ok(size) => compressed_size = size,
-                Err(_) => compressed_size = 0,
-            }
-        },
-        BLOSC_ZLIB => {
-            let cursor = std::io::Cursor::new(&mut dest[data_offset + stream_overhead..]);
-            let mut encoder = flate2::write::ZlibEncoder::new(cursor, flate2::Compression::new(clevel as u32));
-            if encoder.write_all(filtered_src).is_ok() {
-                 match encoder.finish() {
-                     Ok(cursor) => {
-                         compressed_size = cursor.position() as usize;
-                     }
-                     Err(_) => compressed_size = 0,
+    let mut compressed_size = 0;
+    let mut current_dest_offset = data_offset;
+    let neblock = nbytes / nstreams;
+    let mut incompressible = false;
+
+    for j in 0..nstreams {
+        let stream_offset = j * neblock;
+        let stream_src = &filtered_src[stream_offset..stream_offset + neblock];
+        
+        // Check space for stream size (4 bytes)
+        if current_dest_offset + 4 > dest.len() { incompressible = true; break; }
+        
+        let mut stream_csize;
+        
+        match compressor {
+            BLOSC_BLOSCLZ => {
+                stream_csize = blosclz::compress(clevel, stream_src, &mut dest[current_dest_offset + 4..]);
+            },
+            BLOSC_LZ4 => {
+                 match lz4_flex::block::compress_into(stream_src, &mut dest[current_dest_offset + 4..]) {
+                     Ok(size) => stream_csize = size,
+                     Err(_) => stream_csize = 0,
                  }
-            } else {
-                 compressed_size = 0;
-            }
-        },
-        BLOSC_ZSTD => {
-            let cursor = std::io::Cursor::new(&mut dest[data_offset + stream_overhead..]);
-            let mut encoder = zstd::stream::write::Encoder::new(cursor, clevel).map_err(|_| -1)?;
-            if encoder.write_all(filtered_src).is_ok() {
-                 match encoder.finish() {
-                     Ok(cursor) => {
-                         compressed_size = cursor.position() as usize;
+            },
+            BLOSC_SNAPPY => {
+                let mut encoder = snap::raw::Encoder::new();
+                match encoder.compress(stream_src, &mut dest[current_dest_offset + 4..]) {
+                    Ok(size) => stream_csize = size,
+                    Err(_) => stream_csize = 0,
+                }
+            },
+            BLOSC_ZLIB => {
+                let cursor = std::io::Cursor::new(&mut dest[current_dest_offset + 4..]);
+                let mut encoder = flate2::write::ZlibEncoder::new(cursor, flate2::Compression::new(clevel as u32));
+                if encoder.write_all(stream_src).is_ok() {
+                     match encoder.finish() {
+                         Ok(cursor) => {
+                             stream_csize = cursor.position() as usize;
+                         }
+                         Err(_) => stream_csize = 0,
                      }
-                     Err(_) => compressed_size = 0,
-                 }
-            } else {
-                 compressed_size = 0;
-            }
-        },
-        _ => return Err(-1),
+                } else {
+                     stream_csize = 0;
+                }
+            },
+            BLOSC_ZSTD => {
+                let cursor = std::io::Cursor::new(&mut dest[current_dest_offset + 4..]);
+                let mut encoder = zstd::stream::write::Encoder::new(cursor, clevel).map_err(|_| -1)?;
+                if encoder.write_all(stream_src).is_ok() {
+                     match encoder.finish() {
+                         Ok(cursor) => {
+                             stream_csize = cursor.position() as usize;
+                         }
+                         Err(_) => stream_csize = 0,
+                     }
+                } else {
+                     stream_csize = 0;
+                }
+            },
+            _ => return Err(-1),
+        }
+        
+        if stream_csize == 0 || stream_csize >= neblock {
+            incompressible = true;
+            break;
+        }
+        
+        // Write stream size
+        dest[current_dest_offset..current_dest_offset+4].copy_from_slice(&(stream_csize as u32).to_le_bytes());
+        current_dest_offset += 4 + stream_csize;
+        compressed_size += 4 + stream_csize;
     }
     
     let actual_data_offset;
-    if compressed_size == 0 || compressed_size + stream_overhead >= nbytes {
+    if incompressible || compressed_size >= nbytes {
          // Memcpy
          if nbytes > dest.len() - header_len { return Err(-1); }
          dest[header_len..header_len+nbytes].copy_from_slice(src);
@@ -239,13 +272,6 @@ fn compress_internal(
          // No bstarts for memcpy
          actual_data_offset = header_len;
     } else {
-        // Write stream size
-        dest[data_offset..data_offset+4].copy_from_slice(&(compressed_size as u32).to_le_bytes());
-        compressed_size += stream_overhead;
-        
-        // Set DONT_SPLIT flag (0x10)
-        flags |= 0x10;
-
         if will_add_bstarts {
             // Write bstarts array (offset where compressed data begins for single block)
             let bstart_offset = header_len;
