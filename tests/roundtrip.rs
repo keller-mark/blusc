@@ -71,5 +71,19 @@ fn run_roundtrip(case: &TestCase) {
 
     assert_eq!(dsize, buffer_size as i32, "Decompression size mismatch");
 
+    if original != result {
+        for (i, (a, b)) in original.iter().zip(result.iter()).enumerate() {
+            if a != b {
+                println!("Mismatch at index {}: original={}, result={}", i, a, b);
+                // Print surrounding values
+                let start = if i > 10 { i - 10 } else { 0 };
+                let end = if i + 10 < original.len() { i + 10 } else { original.len() };
+                println!("Original context: {:?}", &original[start..end]);
+                println!("Result context:   {:?}", &result[start..end]);
+                break;
+            }
+        }
+    }
+
     assert_eq!(original, result, "Data mismatch after roundtrip");
 }

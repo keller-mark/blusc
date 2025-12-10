@@ -1,6 +1,3 @@
-use std::cmp;
-use crate::internal::constants::*;
-
 const MAX_COPY: usize = 32;
 const MAX_DISTANCE: usize = 8191;
 const MAX_FARDISTANCE: usize = 65535 + MAX_DISTANCE - 1;
@@ -8,7 +5,6 @@ const HASH_LOG: usize = 14;
 
 pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
     if input.is_empty() {
-        println!("blosclz decompress: input is empty");
         return 0;
     }
     let mut ip = 0;
@@ -16,24 +12,17 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
     let ip_limit = input.len();
     let op_limit = output.len();
     
-    println!("blosclz decompress: input.len()={}, output.len()={}", ip_limit, op_limit);
-    
     let mut ctrl = (input[ip] & 31) as u32;
     ip += 1;
     
-    println!("Initial ctrl = {}", ctrl);
-    
     loop {
-        println!("Loop: ip={}, op={}, ctrl={}", ip, op, ctrl);
         if ctrl >= 32 {
-            println!("  Match branch");
             let mut len = (ctrl >> 5) as i32 - 1;
-            let mut ofs = (ctrl & 31) as i32 * 256;
+            let ofs = (ctrl & 31) as i32 * 256;
             
             if len == 6 {
                 loop {
                     if ip >= ip_limit { 
-                        println!("  Error: ip >= ip_limit in len==6 loop");
                         return 0; 
                     }
                     let code = input[ip];
@@ -44,7 +33,6 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
             }
             
             if ip >= ip_limit { 
-                println!("  Error: ip >= ip_limit before reading code");
                 return 0; 
             }
             let code = input[ip];
@@ -56,7 +44,6 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
             if code == 255 {
                 if ofs == 31 * 256 {
                     if ip + 1 >= ip_limit { 
-                        println!("  Error: ip + 1 >= ip_limit in code==255");
                         return 0; 
                     }
                     let ofs_new = (input[ip] as i32) << 8 | (input[ip+1] as i32);
@@ -64,21 +51,19 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
                     distance = ofs_new + MAX_DISTANCE as i32;
                 }
             }
-            
+
             distance += 1;
             
             if op + len as usize > op_limit { 
-                println!("  Error: op + len > op_limit: {} + {} > {}", op, len, op_limit);
                 return 0; 
             }
             if (op as i32) < distance { 
-                println!("  Error: op < distance: {} < {}", op, distance);
                 return 0; 
             }
             
             let ref_pos = op - distance as usize;
             
-            if ip >= ip_limit { println!("Break at ip >= ip_limit after match"); break; }
+            if ip >= ip_limit { break; }
             ctrl = input[ip] as u32;
             ip += 1;
             
@@ -98,14 +83,11 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
             }
             op += len as usize;
         } else {
-            println!("  Literal branch");
             ctrl += 1;
             if op + ctrl as usize > op_limit { 
-                println!("  Error: op + ctrl > op_limit: {} + {} > {}", op, ctrl, op_limit);
                 return 0; 
             }
             if ip + ctrl as usize > ip_limit { 
-                println!("  Error: ip + ctrl > ip_limit: {} + {} > {}", ip, ctrl, ip_limit);
                 return 0; 
             }
             
@@ -113,7 +95,7 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
             op += ctrl as usize;
             ip += ctrl as usize;
             
-            if ip >= ip_limit { println!("Break at ip >= ip_limit after literal"); break; }
+            if ip >= ip_limit { break; }
             ctrl = input[ip] as u32;
             ip += 1;
         }
@@ -123,13 +105,16 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
 }
 
 pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
-    let length = input.len();
-    let maxout = output.len();
-    if length < 16 || maxout < 66 { return 0; }
+    if input.is_empty() {
+        return 0;
+    }
+    let ip_limit = input.len();
+    let op_limit = output.len();
+    if ip_limit < 16 || op_limit < 66 { return 0; }
 
     let mut ip = 0;
-    let ip_bound = length - 1;
-    let ip_limit = length - 12;
+    let ip_bound = ip_limit - 1;
+    let ip_limit = ip_limit - 12;
     let mut op = 0;
     
     let hashlog = match clevel {
@@ -161,7 +146,7 @@ pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
         
         let mut match_found = false;
         if distance > 0 && distance < MAX_FARDISTANCE {
-            if ref_pos < length && input[ref_pos..].len() >= 4 && input[ip..].len() >= 4 {
+            if ref_pos < ip_limit && input[ref_pos..].len() >= 4 && input[ip..].len() >= 4 {
                  if input[ref_pos..ref_pos+4] == input[ip..ip+4] {
                      match_found = true;
                  }
@@ -184,7 +169,7 @@ pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
         let _anchor = ip;
         ip += 4;
         
-        while ip < ip_bound && ref_ptr < length && input[ip] == input[ref_ptr] {
+        while ip < ip_bound && ref_ptr < ip_limit && input[ip] == input[ref_ptr] {
             ip += 1;
             ref_ptr += 1;
             len += 1;
@@ -198,9 +183,11 @@ pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
         }
         copy = 0;
         
+        len -= 2; // Bias for encoding
+
         // Encode match
-        let dist = distance - 1; // biased
-        if distance < MAX_DISTANCE {
+        let dist = distance - 1; 
+        if dist < MAX_DISTANCE {
             if len < 7 {
                 output[op] = ((len as u8) << 5) + ((dist >> 8) as u8); op += 1;
                 output[op] = (dist & 255) as u8; op += 1;
@@ -215,7 +202,7 @@ pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
                 output[op] = (dist & 255) as u8; op += 1;
             }
         } else {
-            let dist_far = distance - MAX_DISTANCE;
+            let dist_far = dist - MAX_DISTANCE;
             if len < 7 {
                 output[op] = ((len as u8) << 5) + 31; op += 1;
                 output[op] = 255; op += 1;
@@ -236,18 +223,17 @@ pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
         }
         
         // Update hash
-        if ip + 4 <= length {
+        if ip + 4 <= ip_limit {
             let seq = u32::from_le_bytes(input[ip..ip+4].try_into().unwrap());
             let hval = (seq.wrapping_mul(2654435761) >> (32 - hashlog)) as usize;
             htab[hval] = ip;
         }
-        ip += 1;
         
         output[op] = (MAX_COPY - 1) as u8; op += 1;
     }
     
     while ip <= ip_bound {
-        if op + 2 > maxout { return 0; }
+        if op + 2 > op_limit { return 0; }
         output[op] = input[ip]; op += 1; ip += 1;
         copy += 1;
         if copy == MAX_COPY {
@@ -262,7 +248,7 @@ pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
         op -= 1;
     }
     
-    output[0] |= 1 << 5;
+    output[0] |= (clevel as u8) << 5;
     
     op
 }
