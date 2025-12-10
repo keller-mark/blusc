@@ -1,5 +1,39 @@
-use blusc::api::{blosc2_compress, blosc2_decompress};
+use blusc::api::{
+    blosc2_compress as blusc_blosc2_compress,
+    blosc2_decompress as blusc_blosc2_decompress,
+};
 use blusc::BLOSC2_MAX_OVERHEAD;
+
+use blosc2_src::{
+    blosc2_init as bound_blosc2_init,
+    blosc2_compress as bound_blosc2_compress,
+    blosc2_decompress as bound_blosc2_decompress,
+    blosc2_create_cctx as bound_blosc2_create_cctx,
+    blosc2_compress_ctx as bound_blosc2_compress_ctx,
+    blosc2_create_dctx as bound_blosc2_create_dctx,
+    blosc2_decompress_ctx as bound_blosc2_decompress_ctx,
+    blosc2_cbuffer_sizes as bound_blosc2_cbuffer_sizes,
+    blosc2_destroy as bound_blosc2_destroy,
+};
+
+use ctor::{ctor, dtor};
+
+#[ctor]
+fn blosc2_init() {
+    unsafe {
+        bound_blosc2_init();
+    }
+}
+
+#[dtor]
+fn blosc2_cleanup() {
+    unsafe {
+        bound_blosc2_destroy();
+    }
+}
+
+
+
 
 struct TestCase {
     type_size: usize,
@@ -54,7 +88,7 @@ fn run_roundtrip(case: &TestCase) {
     let mut intermediate = vec![0u8; dest_size];
     let mut result = vec![0u8; buffer_size];
 
-    let csize = blosc2_compress(
+    let csize = blusc_blosc2_compress(
         case.clevel,
         case.doshuffle,
         case.type_size,
@@ -63,8 +97,28 @@ fn run_roundtrip(case: &TestCase) {
     );
 
     assert!(csize > 0, "Compression failed");
+    intermediate.truncate(csize as usize);
 
-    let dsize = blosc2_decompress(
+    // Compare blusc intermediate to bound intermediate
+    let mut bound_intermediate = vec![0; dest_size];
+    let bound_csize = unsafe {
+        bound_blosc2_compress(
+            case.clevel,
+            case.doshuffle,
+            case.type_size as i32,
+            original.as_ptr().cast(),
+            original.len() as i32,
+            bound_intermediate.as_mut_ptr().cast(),
+            bound_intermediate.len() as i32,
+        )
+    };
+    assert!(bound_csize > 0);
+    bound_intermediate.truncate(bound_csize as usize);
+
+    assert_eq!(csize as usize, bound_csize as usize, "Compressed size mismatch between blusc and bound");
+    assert_eq!(intermediate, bound_intermediate, "Compressed data mismatch between blusc and bound");
+
+    let dsize = blusc_blosc2_decompress(
         &intermediate,
         &mut result,
     );

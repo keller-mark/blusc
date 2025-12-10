@@ -159,6 +159,13 @@ fn compress_internal(
         flags |= BLOSC_DOSHUFFLE | BLOSC_DOBITSHUFFLE;
     }
 
+    // Always set DONT_SPLIT (0x10) because we are not splitting blocks yet
+    // But only if we are not doing initial memcpy (clevel == 0)
+    // And if buffer is large enough (>= BLOSC_MIN_BUFFERSIZE)
+    if clevel != 0 && nbytes >= BLOSC_MIN_BUFFERSIZE {
+        flags |= 0x10;
+    }
+
     // Calculate data start offset (header + bstarts array for extended non-memcpy)
     let mut data_offset = header_len;
     let will_add_bstarts = extended_header && (clevel > 0) && (nbytes >= BLOSC_MIN_BUFFERSIZE);

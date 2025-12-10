@@ -145,10 +145,25 @@ pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
         let distance = ip - ref_pos;
         
         let mut match_found = false;
+        let mut len = 0;
         if distance > 0 && distance < MAX_FARDISTANCE {
             if ref_pos < ip_limit && input[ref_pos..].len() >= 4 && input[ip..].len() >= 4 {
                  if input[ref_pos..ref_pos+4] == input[ip..ip+4] {
-                     match_found = true;
+                     // Calculate length
+                     len = 4;
+                     let mut ref_ptr = ref_pos + 4;
+                     let mut temp_ip = ip + 4;
+                     while temp_ip < ip_bound && ref_ptr < ip_limit && input[temp_ip] == input[ref_ptr] {
+                        temp_ip += 1;
+                        ref_ptr += 1;
+                        len += 1;
+                     }
+                     
+                     if len >= 4 {
+                         if len > 5 || distance < MAX_DISTANCE {
+                             match_found = true;
+                         }
+                     }
                  }
             }
         }
@@ -164,16 +179,7 @@ pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
         }
         
         // Match found
-        let mut len = 4;
-        let mut ref_ptr = ref_pos + 4;
-        let _anchor = ip;
-        ip += 4;
-        
-        while ip < ip_bound && ref_ptr < ip_limit && input[ip] == input[ref_ptr] {
-            ip += 1;
-            ref_ptr += 1;
-            len += 1;
-        }
+        ip += len;
         
         // Reset copy count
         if copy > 0 {
