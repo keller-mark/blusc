@@ -7,12 +7,6 @@ use blusc::BLOSC2_MAX_OVERHEAD;
 use blosc2_src::{
     blosc2_init as bound_blosc2_init,
     blosc2_compress as bound_blosc2_compress,
-    blosc2_decompress as bound_blosc2_decompress,
-    blosc2_create_cctx as bound_blosc2_create_cctx,
-    blosc2_compress_ctx as bound_blosc2_compress_ctx,
-    blosc2_create_dctx as bound_blosc2_create_dctx,
-    blosc2_decompress_ctx as bound_blosc2_decompress_ctx,
-    blosc2_cbuffer_sizes as bound_blosc2_cbuffer_sizes,
     blosc2_destroy as bound_blosc2_destroy,
 };
 
@@ -115,6 +109,31 @@ fn run_roundtrip(case: &TestCase) {
     assert!(bound_csize > 0);
     bound_intermediate.truncate(bound_csize as usize);
 
+    // Debug output for case 6
+    if case.type_size == 8 && case.num_elements == 10000 && case.doshuffle == 2 {
+        println!("\n=== DEBUG: Case 6 compression ===");
+        println!("blusc compressed size: {}", csize);
+        println!("bound compressed size: {}", bound_csize);
+        println!("\nblusc first 100 compressed bytes (after header):");
+        for i in (32..(csize.min(132) as usize)).step_by(10) {
+            if i + 9 < csize as usize {
+                println!("{:3}: {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
+                    i-32,
+                    intermediate[i], intermediate[i+1], intermediate[i+2], intermediate[i+3], intermediate[i+4],
+                    intermediate[i+5], intermediate[i+6], intermediate[i+7], intermediate[i+8], intermediate[i+9]);
+            }
+        }
+        println!("\nbound first 100 compressed bytes (after header):");
+        for i in (32..(bound_csize.min(132) as usize)).step_by(10) {
+            if i + 9 < bound_csize as usize {
+                println!("{:3}: {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
+                    i-32,
+                    bound_intermediate[i], bound_intermediate[i+1], bound_intermediate[i+2], bound_intermediate[i+3], bound_intermediate[i+4],
+                    bound_intermediate[i+5], bound_intermediate[i+6], bound_intermediate[i+7], bound_intermediate[i+8], bound_intermediate[i+9]);
+            }
+        }
+    }
+    
     assert_eq!(csize as usize, bound_csize as usize, "Compressed size mismatch between blusc and bound");
     assert_eq!(intermediate, bound_intermediate, "Compressed data mismatch between blusc and bound");
 

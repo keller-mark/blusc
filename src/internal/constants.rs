@@ -54,7 +54,7 @@ pub const INT_MAX: usize = 2147483647;
 pub const UINT8_MAX: usize = 255;
 
 // Maximum source buffer size to be compressed
-pub const BLOSC2_MAX_BUFFERSIZE: usize = (INT_MAX - BLOSC2_MAX_OVERHEAD);
+pub const BLOSC2_MAX_BUFFERSIZE: usize = INT_MAX - BLOSC2_MAX_OVERHEAD;
 
 // Maximum typesize before considering source buffer as a stream of bytes.
 // Cannot be larger than 255.
