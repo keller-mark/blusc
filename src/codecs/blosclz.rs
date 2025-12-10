@@ -151,7 +151,8 @@ pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
     
     while ip < ip_limit {
         let seq = u32::from_le_bytes(input[ip..ip+4].try_into().unwrap());
-        let hval = (seq.wrapping_mul(2654435761) >> (32 - hashlog)) as usize;
+        let shift = 32 - hashlog;
+        let hval = if shift >= 32 { 0 } else { (seq.wrapping_mul(2654435761) >> shift) as usize };
         
         let ref_pos = htab[hval];
         htab[hval] = ip;
@@ -180,7 +181,7 @@ pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
         // Match found
         let mut len = 4;
         let mut ref_ptr = ref_pos + 4;
-        let anchor = ip;
+        let _anchor = ip;
         ip += 4;
         
         while ip < ip_bound && ref_ptr < length && input[ip] == input[ref_ptr] {

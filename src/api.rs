@@ -148,7 +148,16 @@ pub fn blosc2_compress(
     // Default compressor: BLOSCLZ (0)
     let compressor = BLOSC_BLOSCLZ;
     
-    match internal::compress(clevel, doshuffle, typesize, src, dest, compressor) {
+    let mut filters = [0u8; 6];
+    let filters_meta = [0u8; 6];
+    
+    if doshuffle == BLOSC_SHUFFLE as i32 {
+        filters[5] = BLOSC_SHUFFLE;
+    } else if doshuffle == BLOSC_BITSHUFFLE as i32 {
+        filters[5] = BLOSC_BITSHUFFLE;
+    }
+    
+    match internal::compress_extended(clevel, doshuffle, typesize, src, dest, compressor, &filters, &filters_meta) {
         Ok(size) => size as i32,
         Err(_) => 0,
     }

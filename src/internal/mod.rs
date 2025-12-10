@@ -172,7 +172,7 @@ fn compress_internal(
     // and treating the block as a single stream.
     let stream_overhead = 4;
     if dest.len() < data_offset + stream_overhead { return Err(-1); }
-    let max_compressed_size = dest.len() - data_offset - stream_overhead;
+    let _max_compressed_size = dest.len() - data_offset - stream_overhead;
     let mut compressed_size;
     
     match compressor {
@@ -224,17 +224,13 @@ fn compress_internal(
     }
     println!("Compressed size: {}", compressed_size);
     
-    let mut actual_data_offset = header_len;
+    let actual_data_offset;
     if compressed_size == 0 || compressed_size + stream_overhead >= nbytes {
          // Memcpy
          if nbytes > dest.len() - header_len { return Err(-1); }
          dest[header_len..header_len+nbytes].copy_from_slice(src);
          compressed_size = nbytes;
          flags |= BLOSC_MEMCPYED;
-         // When memcpyed, clear the extended header marker flags
-         if extended_header {
-             flags &= !(BLOSC_DOSHUFFLE | BLOSC_DOBITSHUFFLE);
-         }
          // No bstarts for memcpy
          actual_data_offset = header_len;
     } else {

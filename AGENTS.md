@@ -4,6 +4,8 @@ When porting logic to rust, use the C implementations in the `c-blosc` and `c-bl
 
 When porting the implementation, try to reuse variable names and function names when possible, and use rust idioms otherwise.
 
+The constants defined in `src/internal/constants.rs` are correct and verified against the reference implementation. Use these constants in your code.
+
 ## Note taking
 
 Leave notes about the logic of BLOSC compression and de-compression in the `BLOSC_NOTES.md` file in for future reference. Also leave notes when identifying critical lines of code in the reference implementations, with file names, function names, and corresponding line number ranges.
