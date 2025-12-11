@@ -63,6 +63,13 @@ pub const BLOSC_MAX_TYPESIZE: usize = UINT8_MAX;
 // Minimum buffer size to be compressed.
 pub const BLOSC_MIN_BUFFERSIZE: usize = 32;
 
+// L1 and L2 cache sizes (typical values)
+pub const L1: usize = 32 * 1024;
+pub const L2: usize = 256 * 1024;
+
+// Maximum block size
+pub const BLOSC_MAX_BLOCKSIZE: usize = BLOSC2_MAX_BUFFERSIZE;
+
 // Blosc-defined tuners must be between 0 - 31.
 pub const BLOSC2_DEFINED_TUNER_START: u8 = 0;
 pub const BLOSC2_DEFINED_TUNER_STOP: u8 = 31;

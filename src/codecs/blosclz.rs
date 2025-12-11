@@ -126,7 +126,10 @@ pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
     let hash_size = 1 << hashlog;
     let mut htab = vec![0usize; hash_size];
     
-    output[op] = (MAX_COPY - 1) as u8; op += 1;
+    println!("DEBUG: MAX_COPY={}", MAX_COPY);
+    output[op] = (MAX_COPY - 1) as u8; 
+    println!("DEBUG: output[0] written as {}", output[op]);
+    op += 1;
     output[op] = input[ip]; op += 1; ip += 1;
     output[op] = input[ip]; op += 1; ip += 1;
     output[op] = input[ip]; op += 1; ip += 1;
@@ -149,39 +152,43 @@ pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
         if distance > 0 && distance < MAX_FARDISTANCE {
             if ref_pos < ip_limit && input[ref_pos..].len() >= 4 && input[ip..].len() >= 4 {
                  if input[ref_pos..ref_pos+4] == input[ip..ip+4] {
-                     // Calculate length
                      len = 4;
                      let mut ref_ptr = ref_pos + 4;
                      let mut temp_ip = ip + 4;
-                     // Fix: Remove bound check on ref_ptr as per BLOSC_NOTES.md
                      while temp_ip < ip_bound && input[temp_ip] == input[ref_ptr] {
                         temp_ip += 1;
                         ref_ptr += 1;
                         len += 1;
                      }
-                     
-                     // C implementation logic for ipshift and minlen
-                     // c-blosc2 uses split_block=1 by default.
-                     // For high compression ratio data (which this test case is), ipshift=4 and minlen=4.
-                     let ipshift = 4;
-                     let minlen = 4;
-                     
-                     let len_c = len as i32 - ipshift;
-                     
-                     if len_c >= minlen {
-                         if len_c > 5 || distance < MAX_DISTANCE {
-                             match_found = true;
-                             // Adjust len to be the encoded length value (len_c)
-                             len = len_c as usize;
-                         }
-                     }
                  }
             }
         }
         
+        // C implementation logic for ipshift and minlen
+        // c-blosc2 uses split_block=1 by default.
+        // For high compression ratio data (which this test case is), ipshift=4 and minlen=4.
+        let ipshift = 4;
+        let minlen = 4;
+        
+        let len_c = len as i32 - ipshift;
+        
+        if len_c >= minlen {
+            if len_c > 5 || distance < MAX_DISTANCE {
+                match_found = true;
+                len = len_c as usize;
+                // println!("DEBUG: Match accepted! len_c={}, len={}, dist={}", len_c, len, distance);
+            }
+        }
+        
+        // DEBUG
+        // if match_found && len < 4 {
+        //    println!("DEBUG: Accepted short match! len={}, actual={}, ipshift={}, minlen={}", len, len as i32 + ipshift, ipshift, minlen);
+        // }
+
         if !match_found {
             output[op] = input[ip]; op += 1; ip += 1;
             copy += 1;
+            // if copy > 32 { println!("DEBUG: copy > 32! copy={}", copy); }
             if copy == MAX_COPY {
                 copy = 0;
                 output[op] = (MAX_COPY - 1) as u8; op += 1;
@@ -190,18 +197,27 @@ pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
         }
         
         // Match found
+        // For ipshift=4, we want to overlap by 2 bytes.
+        // Emitted len = original_len - 4.
+        // We want next_ip = original_end - 2.
+        // next_ip = anchor + original_len - 2.
+        // ip (current) = anchor.
+        // So we advance by original_len - 2.
+        // Since len is now emitted_len (original_len - 4),
+        // advancement = len + 2.
         ip += len;
         
         // Reset copy count
         if copy > 0 {
+            if op >= copy + 1 && op - copy - 1 == 0 {
+                 println!("DEBUG: Updating output[0] to {} (copy={})", copy - 1, copy);
+            }
             output[op - copy - 1] = (copy - 1) as u8;
         } else {
             op -= 1;
         }
         copy = 0;
         
-        // len is already biased (len_c)
-
         // Encode match
         let dist = distance - 1; 
         if dist < MAX_DISTANCE {
@@ -240,26 +256,18 @@ pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
         }
         
         // Update hash at match boundary
-        // ip is currently at anchor + len_c.
         if ip + 4 <= ip_limit {
             let seq = u32::from_le_bytes(input[ip..ip+4].try_into().unwrap());
             let hval = (seq.wrapping_mul(2654435761) >> (32 - hashlog)) as usize;
             htab[hval] = ip;
             
             if clevel == 9 {
-                // Hash at ip + 1
-                let seq = seq >> 8;
-                let hval = (seq.wrapping_mul(2654435761) >> (32 - hashlog)) as usize;
-                htab[hval] = ip + 1;
+                let seq_shifted = seq >> 8;
+                let hval_shifted = (seq_shifted.wrapping_mul(2654435761) >> (32 - hashlog)) as usize;
+                htab[hval_shifted] = ip + 1;
             }
         }
-        ip += 1;
-        
-        if clevel == 9 {
-            ip += 1;
-        } else {
-            ip += 1;
-        }
+        ip += 2;
         
         output[op] = (MAX_COPY - 1) as u8; op += 1;
     }

@@ -121,8 +121,58 @@ pub fn compress_extended(
     compress_internal(clevel, doshuffle, typesize, src, dest, compressor, true, filters, filters_meta)
 }
 
+fn compute_blocksize(clevel: i32, typesize: usize, nbytes: usize, compressor: u8) -> usize {
+    if nbytes < typesize {
+        return nbytes.max(1);
+    }
+    
+    let mut blocksize = nbytes;
+    
+    if nbytes >= L1 {
+        blocksize = L1;
+        
+        let is_hcr = match compressor {
+            BLOSC_LZ4HC | BLOSC_ZLIB | BLOSC_ZSTD => true,
+            _ => false,
+        };
+        
+        if is_hcr {
+            blocksize *= 2;
+        }
+        
+        match clevel {
+            0 => blocksize /= 4,
+            1 => blocksize /= 2,
+            2 => blocksize *= 1,
+            3 => blocksize *= 2,
+            4 | 5 => blocksize *= 4,
+            6 | 7 | 8 => blocksize *= 8,
+            9 => {
+                blocksize *= 8;
+                if is_hcr {
+                    blocksize *= 2;
+                }
+            }
+            _ => {}
+        }
+    }
+    
+    if blocksize > nbytes {
+        blocksize = nbytes;
+    }
+    
+    if blocksize > typesize {
+        blocksize = (blocksize / typesize) * typesize;
+    }
+    
+    println!("DEBUG: compute_blocksize: clevel={}, typesize={}, nbytes={}, compressor={} -> blocksize={}", clevel, typesize, nbytes, compressor, blocksize);
+    
+    blocksize
+}
+
 fn split_block(compressor: u8, clevel: i32, typesize: usize, blocksize: usize, doshuffle: i32) -> bool {
-    if doshuffle != BLOSC_SHUFFLE as i32 && doshuffle != BLOSC_BITSHUFFLE as i32 { return false; }
+    // Only split for byte shuffle, NOT bitshuffle (as per c-blosc2 stune.c)
+    if doshuffle != BLOSC_SHUFFLE as i32 { return false; }
     
     let split = match compressor {
         BLOSC_BLOSCLZ | BLOSC_LZ4 => true,
@@ -145,149 +195,153 @@ fn compress_internal(
     filters_meta: &[u8; 6],
 ) -> Result<usize, i32> {
     let nbytes = src.len();
-    let blocksize = nbytes; // Single block
-    let nblocks = 1; // Single block for now
+    let blocksize = compute_blocksize(clevel, typesize, nbytes, compressor);
+    let nblocks = if nbytes == 0 { 0 } else { (nbytes + blocksize - 1) / blocksize };
     
     let header_len = if extended_header { BLOSC_EXTENDED_HEADER_LENGTH } else { BLOSC_MIN_HEADER_LENGTH };
     
-    // 1. Filter
-    let mut filtered_buf = vec![0u8; nbytes];
-    let mut filtered_src = src;
-    
-    let mut flags = 0; // Single block
-    if doshuffle == BLOSC_SHUFFLE as i32 { // Shuffle
-        filters::shuffle(typesize, nbytes, src, &mut filtered_buf);
-        filtered_src = &filtered_buf;
+    let mut flags = 0;
+    if doshuffle == BLOSC_SHUFFLE as i32 {
         flags |= BLOSC_DOSHUFFLE;
-    } else if doshuffle == BLOSC_BITSHUFFLE as i32 { // Bitshuffle
-        filters::bitshuffle(typesize, nbytes, src, &mut filtered_buf).map_err(|_| -1)?;
-        filtered_src = &filtered_buf;
+    } else if doshuffle == BLOSC_BITSHUFFLE as i32 {
         flags |= BLOSC_DOBITSHUFFLE;
     }
     
-    // For extended headers, set both DOSHUFFLE and DOBITSHUFFLE as a marker
-    // (This is how Blosc2 indicates an extended header - both flags set is invalid for actual filtering)
     if extended_header {
         flags |= BLOSC_DOSHUFFLE | BLOSC_DOBITSHUFFLE;
     }
 
-    let split = split_block(compressor, clevel, typesize, nbytes, doshuffle);
-    let nstreams = if split { typesize } else { 1 };
-
-    // Always set DONT_SPLIT (0x10) if we are not splitting blocks
-    // But only if we are not doing initial memcpy (clevel == 0)
-    // And if buffer is large enough (>= BLOSC_MIN_BUFFERSIZE)
+    let split = split_block(compressor, clevel, typesize, blocksize, doshuffle);
+    
     if !split && clevel != 0 && nbytes >= BLOSC_MIN_BUFFERSIZE {
         flags |= 0x10;
     }
 
-    // Calculate data start offset (header + bstarts array for extended non-memcpy)
+    // Calculate data start offset
     let mut data_offset = header_len;
-    let will_add_bstarts = extended_header && (clevel > 0) && (nbytes >= BLOSC_MIN_BUFFERSIZE);
-    if will_add_bstarts {
-        data_offset += nblocks * 4; // Each block start is an i32 (4 bytes)
+    // Always add bstarts if nblocks > 0 (Blosc1 behavior)
+    if nblocks > 0 {
+        data_offset += nblocks * 4;
     }
 
-    // 2. Compress
-    let mut compressed_size = 0;
     let mut current_dest_offset = data_offset;
-    let neblock = nbytes / nstreams;
     let mut incompressible = false;
+    
+    let mut bstarts = vec![0usize; nblocks];
 
-    for j in 0..nstreams {
-        let stream_offset = j * neblock;
-        let stream_src = &filtered_src[stream_offset..stream_offset + neblock];
+    for i in 0..nblocks {
+        let start = i * blocksize;
+        let end = std::cmp::min(start + blocksize, nbytes);
+        let block_len = end - start;
+        let src_block = &src[start..end];
         
-        // Check space for stream size (4 bytes)
-        if current_dest_offset + 4 > dest.len() { incompressible = true; break; }
+        bstarts[i] = current_dest_offset;
         
-        let mut stream_csize;
+        let mut filtered_buf = if doshuffle != BLOSC_NOSHUFFLE as i32 {
+            vec![0u8; block_len]
+        } else {
+            Vec::new()
+        };
         
-        match compressor {
-            BLOSC_BLOSCLZ => {
-                stream_csize = blosclz::compress(clevel, stream_src, &mut dest[current_dest_offset + 4..]);
-            },
-            BLOSC_LZ4 => {
-                 match lz4_flex::block::compress_into(stream_src, &mut dest[current_dest_offset + 4..]) {
-                     Ok(size) => stream_csize = size,
-                     Err(_) => stream_csize = 0,
-                 }
-            },
-            BLOSC_SNAPPY => {
-                let mut encoder = snap::raw::Encoder::new();
-                match encoder.compress(stream_src, &mut dest[current_dest_offset + 4..]) {
-                    Ok(size) => stream_csize = size,
-                    Err(_) => stream_csize = 0,
-                }
-            },
-            BLOSC_ZLIB => {
-                let cursor = std::io::Cursor::new(&mut dest[current_dest_offset + 4..]);
-                let mut encoder = flate2::write::ZlibEncoder::new(cursor, flate2::Compression::new(clevel as u32));
-                if encoder.write_all(stream_src).is_ok() {
-                     match encoder.finish() {
-                         Ok(cursor) => {
-                             stream_csize = cursor.position() as usize;
-                         }
-                         Err(_) => stream_csize = 0,
-                     }
-                } else {
-                     stream_csize = 0;
-                }
-            },
-            BLOSC_ZSTD => {
-                let cursor = std::io::Cursor::new(&mut dest[current_dest_offset + 4..]);
-                let mut encoder = zstd::stream::write::Encoder::new(cursor, clevel).map_err(|_| -1)?;
-                if encoder.write_all(stream_src).is_ok() {
-                     match encoder.finish() {
-                         Ok(cursor) => {
-                             stream_csize = cursor.position() as usize;
-                         }
-                         Err(_) => stream_csize = 0,
-                     }
-                } else {
-                     stream_csize = 0;
-                }
-            },
-            _ => return Err(-1),
+        let mut filtered_src = src_block;
+        
+        if doshuffle == BLOSC_SHUFFLE as i32 {
+            filters::shuffle(typesize, block_len, src_block, &mut filtered_buf);
+            filtered_src = &filtered_buf;
+        } else if doshuffle == BLOSC_BITSHUFFLE as i32 {
+            filters::bitshuffle(typesize, block_len, src_block, &mut filtered_buf).map_err(|_| -1)?;
+            filtered_src = &filtered_buf;
         }
         
-        // Debug print
-        // println!("Stream {}: size {}", j, stream_csize);
-
-        if stream_csize == 0 || stream_csize >= neblock {
-            incompressible = true;
-            break;
+        let block_split = split_block(compressor, clevel, typesize, block_len, doshuffle);
+        let nstreams = if block_split { typesize } else { 1 };
+        let neblock = block_len / nstreams;
+        
+        for j in 0..nstreams {
+            let stream_offset = j * neblock;
+            let stream_src = &filtered_src[stream_offset..stream_offset + neblock];
+            
+            if current_dest_offset + 4 > dest.len() { incompressible = true; break; }
+            
+            let mut stream_csize;
+            
+            match compressor {
+                BLOSC_BLOSCLZ => {
+                    stream_csize = blosclz::compress(clevel, stream_src, &mut dest[current_dest_offset + 4..]);
+                },
+                BLOSC_LZ4 => {
+                     match lz4_flex::block::compress_into(stream_src, &mut dest[current_dest_offset + 4..]) {
+                         Ok(size) => stream_csize = size,
+                         Err(_) => stream_csize = 0,
+                     }
+                },
+                BLOSC_SNAPPY => {
+                    let mut encoder = snap::raw::Encoder::new();
+                    match encoder.compress(stream_src, &mut dest[current_dest_offset + 4..]) {
+                        Ok(size) => stream_csize = size,
+                        Err(_) => stream_csize = 0,
+                    }
+                },
+                BLOSC_ZLIB => {
+                    let cursor = std::io::Cursor::new(&mut dest[current_dest_offset + 4..]);
+                    let mut encoder = flate2::write::ZlibEncoder::new(cursor, flate2::Compression::new(clevel as u32));
+                    if encoder.write_all(stream_src).is_ok() {
+                         match encoder.finish() {
+                             Ok(cursor) => {
+                                 stream_csize = cursor.position() as usize;
+                             }
+                             Err(_) => stream_csize = 0,
+                         }
+                    } else {
+                         stream_csize = 0;
+                    }
+                },
+                BLOSC_ZSTD => {
+                    let cursor = std::io::Cursor::new(&mut dest[current_dest_offset + 4..]);
+                    let mut encoder = zstd::stream::write::Encoder::new(cursor, clevel).map_err(|_| -1)?;
+                    if encoder.write_all(stream_src).is_ok() {
+                         match encoder.finish() {
+                             Ok(cursor) => {
+                                 stream_csize = cursor.position() as usize;
+                             }
+                             Err(_) => stream_csize = 0,
+                         }
+                    } else {
+                         stream_csize = 0;
+                    }
+                },
+                _ => return Err(-1),
+            }
+            
+            if stream_csize == 0 || stream_csize >= neblock {
+                incompressible = true;
+                break;
+            }
+            
+            dest[current_dest_offset..current_dest_offset+4].copy_from_slice(&(stream_csize as u32).to_le_bytes());
+            current_dest_offset += 4 + stream_csize;
         }
         
-        // Write stream size
-        dest[current_dest_offset..current_dest_offset+4].copy_from_slice(&(stream_csize as u32).to_le_bytes());
-        current_dest_offset += 4 + stream_csize;
-        compressed_size += 4 + stream_csize;
+        if incompressible { break; }
     }
     
-    let actual_data_offset;
+    let compressed_size = current_dest_offset - data_offset;
+    
     if incompressible || compressed_size >= nbytes {
-         // Memcpy
          if nbytes > dest.len() - header_len { return Err(-1); }
          dest[header_len..header_len+nbytes].copy_from_slice(src);
-         compressed_size = nbytes;
          flags |= BLOSC_MEMCPYED;
-         // No bstarts for memcpy
-         actual_data_offset = header_len;
+         current_dest_offset = header_len + nbytes;
     } else {
-        if will_add_bstarts {
-            // Write bstarts array (offset where compressed data begins for single block)
-            let bstart_offset = header_len;
-            dest[bstart_offset..bstart_offset+4].copy_from_slice(&(data_offset as u32).to_le_bytes());
-            actual_data_offset = data_offset;
-        } else {
-            // Standard header, data follows header
-            actual_data_offset = header_len;
+        if nblocks > 0 {
+            for i in 0..nblocks {
+                let offset = header_len + i * 4;
+                dest[offset..offset+4].copy_from_slice(&(bstarts[i] as u32).to_le_bytes());
+            }
         }
     }
 
-    // 3. Header
-    let cbytes = compressed_size + actual_data_offset;
+    let cbytes = current_dest_offset;
     if extended_header {
         let header = create_header_blosc2(nbytes, blocksize, cbytes, typesize, flags, compressor, filters, filters_meta);
         dest[0..BLOSC_EXTENDED_HEADER_LENGTH].copy_from_slice(&header);
@@ -365,8 +419,10 @@ pub fn decompress(src: &[u8], dest: &mut [u8]) -> Result<usize, Box<dyn std::err
     // For extended headers with actual compression (not memcpy), read bstarts array
     let mut bstarts = Vec::new();
     
-    if nblocks > 1 {
-        // Multiple blocks: read bstarts array
+    if nblocks > 0 {
+        // Always read bstarts array if nblocks > 0
+        // Note: This assumes Blosc1 format also includes bstarts for nblocks=1.
+        // c-blosc implementation suggests it does.
         if src.len() < header_len + nblocks * 4 {
             return Err("Buffer too small for bstarts array".into());
         }
@@ -375,19 +431,6 @@ pub fn decompress(src: &[u8], dest: &mut [u8]) -> Result<usize, Box<dyn std::err
             let offset = header_len + i * 4;
             let bstart = u32::from_le_bytes([src[offset], src[offset+1], src[offset+2], src[offset+3]]) as usize;
             bstarts.push(bstart);
-        }
-    } else if nblocks == 1 {
-        // Single block handling depends on header type
-        if header_len == BLOSC_EXTENDED_HEADER_LENGTH {
-            // Extended header (Blosc2): Always has bstarts array, even for single block
-            if src.len() < header_len + 4 {
-                return Err("Buffer too small for bstarts array".into());
-            }
-            let bstart = u32::from_le_bytes([src[header_len], src[header_len+1], src[header_len+2], src[header_len+3]]) as usize;
-            bstarts.push(bstart);
-        } else {
-            // Blosc1 format (16-byte header): No bstarts, data starts immediately after header
-            bstarts.push(header_len);
         }
     }
 

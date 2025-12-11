@@ -67,10 +67,11 @@ fn bshuf_trans_bit_byte_scal(in_buf: &[u8], out_buf: &mut [u8], size: usize, ele
     let bit_row_skip = nbyte_bitrow;
     let bit_row_offset = 0;
 
-    let in_u64 = unsafe { std::slice::from_raw_parts(in_buf.as_ptr() as *const u64, nbyte / 8) };
-    
     for ii in 0..nbyte_bitrow {
-        let mut x = in_u64[ii];
+        let offset = ii * 8;
+        let bytes = &in_buf[offset..offset+8];
+        let mut x = u64::from_ne_bytes(bytes.try_into().unwrap());
+        
         x = trans_bit_8x8(x);
         for kk in 0..8 {
             out_buf[bit_row_offset + kk * bit_row_skip + ii] = x as u8;
@@ -156,7 +157,7 @@ pub fn bitunshuffle(bytesoftype: usize, blocksize: usize, src: &[u8], dest: &mut
     // 3. Reverse Step 1: Untranspose bytes/elements
     // Note: we swap size and bytesoftype to reverse the transpose
     bshuf_trans_byte_elem_scal(&tmp_buf2, dest, bytesoftype, size);
-
+    
     Ok(())
 }
 

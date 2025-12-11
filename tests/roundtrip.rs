@@ -147,6 +147,10 @@ fn run_roundtrip(case: &TestCase) {
         println!("\n=== DEBUG: Case 6 compression ===");
         println!("blusc compressed size: {}", csize);
         println!("bound compressed size: {}", bound_csize);
+        
+        let bound_blocksize = u32::from_le_bytes(bound_intermediate[8..12].try_into().unwrap());
+        println!("bound blocksize: {}", bound_blocksize);
+        
         println!("\nblusc first 100 compressed bytes (after header):");
         for i in (32..(csize.min(132) as usize)).step_by(10) {
             if i + 9 < csize as usize {
