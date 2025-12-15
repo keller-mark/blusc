@@ -1,7 +1,8 @@
 // Corresponds to c-blosc2/blosc/frame.c (and .h)
 
-use crate::blosc::context::Blosc2Schunk;
+use crate::blosc::context::{Blosc2Schunk, Blosc2Context};
 use crate::blosc::blosc_private::to_big;
+use crate::blosc::blosc2::{blosc2_cbuffer_sizes, blosc2_decompress_ctx};
 use crate::include::blosc2_include::{
     BLOSC2_VERSION_FRAME_FORMAT, BLOSC2_MAX_FILTERS, BLOSC_LAST_CODEC, 
     BLOSC_UDCODEC_FORMAT, BLOSC2_ERROR_PLUGIN_IO, BLOSC2_ERROR_FILE_OPEN,

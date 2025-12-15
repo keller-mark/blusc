@@ -823,3 +823,245 @@ int blosclz_decompress(const void* input, int length, void* output, int maxout) 
 
 
 */
+use crate::blosc::context::Blosc2Context;
+use std::cmp;
+
+const MAX_COPY: usize = 32;
+const MAX_DISTANCE: usize = 8191;
+const MAX_FARDISTANCE: usize = 65535 + MAX_DISTANCE - 1;
+const HASH_LOG: usize = 14;
+const HASH_SIZE: usize = 1 << HASH_LOG;
+
+pub fn blosclz_compress(
+    _opt_level: i32,
+    input: &[u8],
+    output: &mut [u8],
+    maxout: usize,
+    _ctx: &Blosc2Context,
+) -> i32 {
+    let length = input.len();
+    if length == 0 { return 0; }
+    
+    let mut ip = 0;
+    let mut op = 0;
+    let mut anchor = 0;
+    let ip_limit = if length > 4 { length - 4 } else { 0 };
+    
+    let mut htab = [0usize; HASH_SIZE];
+    
+    if maxout < 66 { return 0; }
+    
+    if op >= maxout { return 0; }
+    output[op] = input[ip];
+    op += 1;
+    ip += 1;
+    anchor = ip;
+    
+    let mut copy = 0;
+    
+    while ip < ip_limit {
+        let v = u32::from_ne_bytes([input[ip], input[ip+1], input[ip+2], input[ip+3]]);
+        let h = (v.wrapping_mul(2654435761)) >> (32 - HASH_LOG);
+        let ref_pos = htab[h as usize];
+        htab[h as usize] = ip;
+        
+        if ref_pos < ip 
+           && (ip - ref_pos) <= MAX_FARDISTANCE
+           && ref_pos > 0
+           && input[ref_pos] == input[ip]
+           && input[ref_pos+1] == input[ip+1]
+           && input[ref_pos+2] == input[ip+2]
+        {
+             let distance = ip - ref_pos;
+             let mut len = 3;
+             let mut ref_ptr = ref_pos + 3;
+             let mut ip_ptr = ip + 3;
+             
+             while ip_ptr < length && ref_ptr < ip && input[ref_ptr] == input[ip_ptr] {
+                 ip_ptr += 1;
+                 ref_ptr += 1;
+                 len += 1;
+             }
+             
+             if copy != 0 {
+                 output[op - copy - 1] = (copy - 1) as u8;
+                 copy = 0;
+             } else {
+                 op -= 1;
+             }
+             
+             if distance <= MAX_DISTANCE {
+                 if len < 7 {
+                     if op + 2 > maxout { return 0; }
+                     output[op] = ((len << 5) + (distance >> 8)) as u8;
+                     op += 1;
+                     output[op] = (distance & 255) as u8;
+                     op += 1;
+                 } else {
+                     if op + 2 + len/255 + 1 > maxout { return 0; }
+                     output[op] = ((7 << 5) + (distance >> 8)) as u8;
+                     op += 1;
+                     let mut l = len - 7;
+                     while l >= 255 {
+                         output[op] = 255;
+                         op += 1;
+                         l -= 255;
+                     }
+                     output[op] = l as u8;
+                     op += 1;
+                     output[op] = (distance & 255) as u8;
+                     op += 1;
+                 }
+             } else {
+                 if op + 2 + len/255 + 3 > maxout { return 0; }
+                 output[op] = ((7 << 5) + 31) as u8;
+                 op += 1;
+                 let mut l = len - 7;
+                 while l >= 255 {
+                     output[op] = 255;
+                     op += 1;
+                     l -= 255;
+                 }
+                 output[op] = l as u8;
+                 op += 1;
+                 output[op] = 255;
+                 op += 1;
+                 output[op] = (distance >> 8) as u8;
+                 op += 1;
+                 output[op] = (distance & 255) as u8;
+                 op += 1;
+             }
+             
+             anchor = ip_ptr;
+             ip = ip_ptr;
+             
+             if ip < ip_limit {
+                 if op + 2 > maxout { return 0; }
+                 output[op] = input[ip];
+                 op += 1;
+                 ip += 1;
+                 anchor = ip;
+                 copy = 0;
+             }
+        } else {
+             if op + 2 > maxout { return 0; }
+             output[op] = input[anchor];
+             op += 1;
+             anchor += 1;
+             ip = anchor;
+             copy += 1;
+             if copy == MAX_COPY {
+                 copy = 0;
+                 output[op] = (MAX_COPY - 1) as u8;
+                 op += 1;
+             }
+        }
+    }
+    
+    while ip < length {
+        if op + 2 > maxout { return 0; }
+        output[op] = input[ip];
+        op += 1;
+        ip += 1;
+        copy += 1;
+        if copy == MAX_COPY {
+            copy = 0;
+            output[op] = (MAX_COPY - 1) as u8;
+            op += 1;
+        }
+    }
+    
+    if copy != 0 {
+        output[op - copy - 1] = (copy - 1) as u8;
+    } else {
+        op -= 1;
+    }
+    
+    op as i32
+}
+
+pub fn blosclz_decompress(
+    input: &[u8],
+    output: &mut [u8],
+    maxout: usize,
+) -> i32 {
+    let length = input.len();
+    if length == 0 { return 0; }
+    
+    let mut ip = 0;
+    let mut op = 0;
+    let ip_limit = length;
+    let op_limit = maxout;
+    
+    let mut ctrl = (input[ip] & 31) as u32;
+    ip += 1;
+    
+    loop {
+        if ctrl >= 32 {
+            let mut len = ((ctrl >> 5) - 1) as i32;
+            let mut ofs = ((ctrl & 31) << 8) as i32;
+            let mut code: u8;
+            
+            if len == 6 {
+                loop {
+                    if ip + 1 >= ip_limit { return 0; }
+                    code = input[ip];
+                    ip += 1;
+                    len += code as i32;
+                    if code != 255 { break; }
+                }
+            } else {
+                if ip + 1 >= ip_limit { return 0; }
+            }
+            
+            code = input[ip];
+            ip += 1;
+            len += 3;
+            
+            let mut ref_pos = (op as i32) - ofs - (code as i32);
+            
+            if code == 255 {
+                if ofs == (31 << 8) {
+                    if ip + 1 >= ip_limit { return 0; }
+                    ofs = (input[ip] as i32) << 8;
+                    ip += 1;
+                    ofs += input[ip] as i32;
+                    ip += 1;
+                    ref_pos = (op as i32) - ofs - MAX_DISTANCE as i32;
+                }
+            }
+            
+            if op + (len as usize) > op_limit { return 0; }
+            if ref_pos < 0 { return 0; }
+            
+            let len = len as usize;
+            let ref_pos = ref_pos as usize;
+            
+            if ref_pos >= op { return 0; }
+            
+            for i in 0..len {
+                output[op + i] = output[ref_pos + i];
+            }
+            op += len;
+            
+            if ip >= ip_limit { break; }
+            ctrl = input[ip] as u32;
+            ip += 1;
+        } else {
+            ctrl += 1;
+            let len = ctrl as usize;
+            if op + len > op_limit { return 0; }
+            if ip + len > ip_limit { return 0; }
+            
+            output[op..op+len].copy_from_slice(&input[ip..ip+len]);
+            op += len;
+            ip += len;
+            
+            if ip >= ip_limit { break; }
+            ctrl = input[ip] as u32;
+            ip += 1;
+        }
+    }
+    
+    op as i32
+}

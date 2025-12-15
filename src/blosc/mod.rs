@@ -9,7 +9,7 @@ pub mod context;
 pub mod delta;
 pub mod fastcopy;
 pub mod frame;
-pub mod schunk_private;
+// pub mod schunk_private;
 pub mod schunk;
 pub mod sframe;
 pub mod shuffle_generic;

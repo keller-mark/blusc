@@ -160,6 +160,7 @@ pub struct B2ndContextS {
 
 // Placeholder types that will be defined in blosc2_include.rs
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct Blosc2Filter {
     _placeholder: u8,
 }
@@ -193,10 +194,10 @@ pub struct Blosc2Metalayer {
 }
 
 // Constants from blosc2.h (will be properly defined in blosc2_include.rs)
-const BLOSC2_MAX_FILTERS: usize = 6;
-const BLOSC2_MAX_UDFILTERS: usize = 4;
-const B2ND_MAX_DIM: usize = 8;
-const B2ND_MAX_METALAYERS: usize = 16;
+pub const BLOSC2_MAX_FILTERS: usize = 6;
+pub const BLOSC2_MAX_UDFILTERS: usize = 4;
+pub const B2ND_MAX_DIM: usize = 8;
+pub const B2ND_MAX_METALAYERS: usize = 16;
 
 /*
 Original C code from c-blosc2/blosc/context.h:
