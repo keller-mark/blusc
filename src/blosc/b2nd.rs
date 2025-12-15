@@ -4,7 +4,7 @@
 
 /*
 
-#include "b2nd.h"
+#include "b2nd.h" // Corresponds to src/include/b2nd_include.rs
 
 /**
  * @brief Get the chunk indexes needed to get the slice.

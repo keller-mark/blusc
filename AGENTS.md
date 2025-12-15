@@ -11,6 +11,8 @@ DO EVERYTHING SINGLE-THREADED AND DO EVERYTHING IN-MEMORY.
 
 WE DO NOT CARE ABOUT PERFORMANCE. IGNORE PROCESSOR-SPECIFIC OPTIMIZATIONS and IGNORE ARCHITECTURE-SPECIFIC HARDWARE OPTIMIZATIONS.
 
+Leveraging libc is NOT ACCEPTABLE. Use pure rust. Do not use unsafe blocks.
+
 ## Note taking
 
 Leave comments in the Rust code reflecting the logic used in the C implementation for future reference.
