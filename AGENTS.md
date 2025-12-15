@@ -6,11 +6,15 @@ When porting the implementation, try to reuse variable names and function names 
 
 The constants defined in `src/internal/constants.rs` are correct and verified against the reference implementation. Use these constants in your code.
 
+We want to use the ported implementation in a single-threaded WebAssembly context, so IGNORE MULTI-THREADING and IGNORE THE FILESYSTEM.
+DO EVERYTHING SINGLE-THREADED AND DO EVERYTHING IN-MEMORY.
+
+WE DO NOT CARE ABOUT PERFORMANCE. IGNORE PROCESSOR-SPECIFIC OPTIMIZATIONS and IGNORE ARCHITECTURE-SPECIFIC HARDWARE OPTIMIZATIONS.
+
 ## Note taking
 
-Leave notes about the logic of BLOSC compression and de-compression in the `BLOSC_NOTES.md` file in for future reference. Also leave notes when identifying critical lines of code in the reference implementations, with file names, function names, and corresponding line number ranges.
-
 Leave comments in the Rust code reflecting the logic used in the C implementation for future reference.
+Preserve all comments from the original implementation.
 
 
 ## Unit testing

@@ -1,8 +1,7 @@
 
 pub mod api;
-pub mod codecs;
-pub mod filters;
-pub mod internal;
+pub mod blosc;
+pub mod include;
 
 pub use api::*;
-pub use crate::internal::constants::*;
+pub use crate::include::blosc2_include::*;

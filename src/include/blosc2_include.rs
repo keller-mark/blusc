@@ -1,4 +1,4 @@
-// Constants from c-blosc2/include/blosc2.h
+// Corresponds to c-blosc2/include/blosc2.h
 
 // Also see https://github.com/maiteko/blosc2-src-rs/blob/9aa1ba98a9fe7a59c112d691bfea0caed6f00382/src/bindings.rs#L3C1-L21C53
 
@@ -62,6 +62,9 @@ pub const BLOSC_MAX_TYPESIZE: usize = UINT8_MAX;
 
 // Minimum buffer size to be compressed.
 pub const BLOSC_MIN_BUFFERSIZE: usize = 32;
+
+// Maximum number of streams when splitting a block (c-blosc2/blosc/stune.h)
+pub const MAX_STREAMS: usize = 16;
 
 // L1 and L2 cache sizes (typical values)
 pub const L1: usize = 32 * 1024;

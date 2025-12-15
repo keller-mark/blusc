@@ -1,5 +1,5 @@
-use crate::internal;
-use crate::internal::constants::*;
+use crate::include;
+use crate::include::blosc2_include::*;
 use std::os::raw::c_void;
 
 
@@ -117,7 +117,7 @@ pub fn blosc1_getitem(
         cbuffer
     };
     
-    match internal::getitem(src_slice, start as usize, nitems as usize, dest) {
+    match include::getitem(src_slice, start as usize, nitems as usize, dest) {
         Ok(size) => size as i32,
         Err(_) => 0,
     }
@@ -157,7 +157,7 @@ pub fn blosc2_compress(
         filters[5] = BLOSC_BITSHUFFLE;
     }
     
-    match internal::compress_extended(clevel, doshuffle, typesize, src, dest, compressor, &filters, &filters_meta) {
+    match include::compress_extended(clevel, doshuffle, typesize, src, dest, compressor, &filters, &filters_meta) {
         Ok(size) => size as i32,
         Err(_) => 0,
     }
@@ -167,7 +167,7 @@ pub fn blosc2_decompress(
     src: &[u8],
     dest: &mut [u8],
 ) -> i32 {
-    match internal::decompress(src, dest) {
+    match include::decompress(src, dest) {
         Ok(size) => size as i32,
         Err(_) => -1,
     }
@@ -199,7 +199,7 @@ pub fn blosc2_compress_ctx(
     let filters = context.cparams.filters;
     let filters_meta = context.cparams.filters_meta;
     
-    match internal::compress_extended(clevel, doshuffle, typesize, src, dest, compressor, &filters, &filters_meta) {
+    match include::compress_extended(clevel, doshuffle, typesize, src, dest, compressor, &filters, &filters_meta) {
         Ok(size) => size as i32,
         Err(_) => 0,
     }
@@ -228,7 +228,7 @@ pub fn blosc2_decompress_ctx(
     src: &[u8],
     dest: &mut [u8],
 ) -> i32 {
-    match internal::decompress(src, dest) {
+    match include::decompress(src, dest) {
         Ok(size) => size as i32,
         Err(_) => -1,
     }
