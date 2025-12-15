@@ -47,7 +47,7 @@ cargo test -- --test-threads=1 --nocapture
 
 
 
-For reference during development, this crate contains the C implementations in `c-blosc` and `c-blosc2` directories as git submodules.
+For reference during development, this crate contains the C implementation in the comments at the end of each Rust file.
 
 -----
 

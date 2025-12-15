@@ -1,10 +1,10 @@
-When porting logic to rust, use the C implementations in the `c-blosc` and `c-blosc2` subdirectories.
+When porting logic to rust, use the C implementations in comments at the end of each Rust source file.
 
 ## Porting from C to Rust
 
-When porting the implementation, try to reuse variable names and function names when possible, and use rust idioms otherwise.
+When porting the implementation, try to reuse variable names and function names when possible, and use Rust idioms otherwise.
 
-The constants defined in `src/internal/constants.rs` are correct and verified against the reference implementation. Use these constants in your code.
+The constants defined in `src/include/blosc2_include.rs` are correct and verified against the reference implementation. Use these constants in your code.
 
 We want to use the ported implementation in a single-threaded WebAssembly context, so IGNORE MULTI-THREADING and IGNORE THE FILESYSTEM.
 DO EVERYTHING SINGLE-THREADED AND DO EVERYTHING IN-MEMORY.
