@@ -70,10 +70,10 @@ fn codec_blosc_round_trip1() {
     cparams.filters[5] = 1; // Shuffle
     cparams.blocksize = 0;
 
-    let cctx = blusc_blosc2_create_cctx(cparams);
+    let mut cctx = blusc_blosc2_create_cctx(cparams);
 
     let mut compressed = vec![0u8; bytes.len() + BLUSC_BLOSC2_MAX_OVERHEAD as usize];
-    let csize = blusc_blosc2_compress_ctx(&cctx, &bytes, &mut compressed);
+    let csize = blusc_blosc2_compress_ctx(&mut cctx, &bytes, &mut compressed);
 
     assert!(csize > 0);
     compressed.truncate(csize as usize);
@@ -109,10 +109,10 @@ fn codec_blosc_round_trip2() {
     cparams.typesize = 2;
     cparams.filters[5] = 1; // Shuffle
     cparams.blocksize = 0;
-    let cctx = blusc_blosc2_create_cctx(cparams);
+    let mut cctx = blusc_blosc2_create_cctx(cparams);
 
     let mut compressed = vec![0u8; bytes.len() + BLUSC_BLOSC2_MAX_OVERHEAD as usize];
-    let csize = blusc_blosc2_compress_ctx(&cctx, &bytes, &mut compressed);
+    let csize = blusc_blosc2_compress_ctx(&mut cctx, &bytes, &mut compressed);
 
     println!("Compressed size: {}", csize);
     assert!(csize > 0);

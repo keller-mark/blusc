@@ -66,7 +66,7 @@ pub fn blosc2_create_cctx(cparams: Blosc2Cparams) -> Blosc2Context {
 }
 
 pub fn blosc2_compress_ctx(
-    context: &Blosc2Context,
+    context: &mut Blosc2Context,
     src: &[u8],
     dest: &mut [u8],
 ) -> i32 {

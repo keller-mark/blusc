@@ -259,53 +259,20 @@ pub fn update_shape(
     }
 }
 
-// Declarations for functions that will be implemented in blosc2.rs
-// These are assumed to exist per AGENTS.md guidance
-extern "C" {
-    fn blosc2_meta_exists(schunk: *mut Blosc2Schunk, name: *const i8) -> i32;
-    fn blosc2_meta_add(schunk: *mut Blosc2Schunk, name: *const i8, content: *const u8, content_len: i32) -> i32;
-    fn blosc2_meta_update(schunk: *mut Blosc2Schunk, name: *const i8, content: *const u8, content_len: i32) -> i32;
-    fn blosc2_meta_get(schunk: *mut Blosc2Schunk, name: *const i8, content: *mut *mut u8, content_len: *mut i32) -> i32;
-    fn blosc2_schunk_new(storage: *mut Blosc2Storage) -> *mut Blosc2Schunk;
-    fn blosc2_schunk_free(schunk: *mut Blosc2Schunk) -> i32;
-    fn blosc2_schunk_fill_special(schunk: *mut Blosc2Schunk, nitems: i64, special_value: i32, chunksize: i32) -> i32;
-    fn blosc2_schunk_get_cparams(schunk: *mut Blosc2Schunk, cparams: *mut *mut Blosc2Cparams) -> i32;
-    fn blosc2_schunk_from_buffer(cframe: *mut u8, cframe_len: i64, copy: bool) -> *mut Blosc2Schunk;
-    fn blosc2_schunk_to_buffer(schunk: *mut Blosc2Schunk, cframe: *mut *mut u8, needs_free: *mut bool) -> i64;
-    fn blosc2_schunk_open(urlpath: *const i8) -> *mut Blosc2Schunk;
-    fn blosc2_schunk_open_offset(urlpath: *const i8, offset: i64) -> *mut Blosc2Schunk;
-    fn blosc2_schunk_decompress_chunk(schunk: *mut Blosc2Schunk, nchunk: i64, dest: *mut u8, nbytes: i32) -> i32;
-    fn blosc2_schunk_update_chunk(schunk: *mut Blosc2Schunk, nchunk: i64, chunk: *mut u8, copy: bool) -> i64;
-    fn blosc2_schunk_insert_chunk(schunk: *mut Blosc2Schunk, nchunk: i64, chunk: *mut u8, copy: bool) -> i64;
-    fn blosc2_schunk_delete_chunk(schunk: *mut Blosc2Schunk, nchunk: i64) -> i64;
-    fn blosc2_schunk_get_chunk(schunk: *mut Blosc2Schunk, nchunk: i64, chunk: *mut *mut u8, needs_free: *mut bool) -> i32;
-    fn blosc2_schunk_copy(schunk: *mut Blosc2Schunk, storage: *mut Blosc2Storage) -> *mut Blosc2Schunk;
-    fn blosc2_schunk_append_file(schunk: *mut Blosc2Schunk, urlpath: *const i8) -> i64;
-    fn blosc2_schunk_append_buffer(schunk: *mut Blosc2Schunk, buffer: *mut u8, buffersize: i64) -> i32;
-    fn blosc2_compress_ctx(context: *mut Blosc2Context, src: *const u8, srcsize: i32, dest: *mut u8, destsize: i32) -> i32;
-    fn blosc2_chunk_zeros(cparams: Blosc2Cparams, nbytes: i32, dest: *mut u8, destsize: i32) -> i32;
-    fn blosc2_chunk_repeatval(cparams: *const Blosc2Cparams, chunkbytes: i32, chunk: *mut u8, chunksize: i32, fill_value: *const u8) -> i32;
-    fn blosc2_set_maskout(dctx: *mut Blosc2Dctx, maskout: *const bool, nblocks: i32) -> i32;
-    fn blosc2_vlmeta_get(schunk: *mut Blosc2Schunk, name: *const i8, content: *mut *mut u8, content_len: *mut i32) -> i32;
-    fn blosc2_vlmeta_add(schunk: *mut Blosc2Schunk, name: *const i8, content: *const u8, content_len: i32, cparams: *mut Blosc2Cparams) -> i32;
-    fn blosc2_unidim_to_multidim(ndim: i8, shape: *const i64, i: i64, index: *mut i64);
-    fn blosc2_multidim_to_unidim(index: *const i64, ndim: i8, strides: *const i64, i: *mut i64);
-}
-
 // Placeholder types for blosc2 structures
 #[repr(C)]
 pub struct Blosc2Cparams {
-    _placeholder: u8,
+    // TODO
 }
 
 #[repr(C)]
 pub struct Blosc2Dctx {
-    _placeholder: u8,
+    // TODO
 }
 
 #[repr(C)]
 pub struct Blosc2Context {
-    _placeholder: u8,
+    // TODO
 }
 
 // Constants from blosc2.h (these will be properly defined in blosc2_include.rs)

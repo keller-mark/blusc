@@ -180,26 +180,33 @@ pub fn blosc2_get_complib_info(_compcode: &str) -> Option<(&'static str, &'stati
 }
 
 pub fn blosc2_compress(
-    _clevel: i32,
-    _doshuffle: i32,
-    _typesize: usize,
-    _src: &[u8],
-    _dest: &mut [u8],
+    clevel: i32,
+    doshuffle: i32,
+    typesize: usize,
+    src: &[u8],
+    dest: &mut [u8],
 ) -> i32 {
-    // TODO: Implement
-    0
+    let mut cparams = BLOSC2_CPARAMS_DEFAULTS;
+    cparams.clevel = clevel as u8;
+    cparams.typesize = typesize as i32;
+    if BLOSC2_MAX_FILTERS > 0 {
+        cparams.filters[BLOSC2_MAX_FILTERS as usize - 1] = doshuffle as u8;
+    }
+    
+    let mut ctx = blosc2_create_cctx(cparams);
+    blosc2_compress_ctx(&mut ctx, src, dest)
 }
 
 pub fn blosc2_decompress(
-    _src: &[u8],
-    _dest: &mut [u8],
+    src: &[u8],
+    dest: &mut [u8],
 ) -> i32 {
-    // TODO: Implement
-    0
+    let dparams = BLOSC2_DPARAMS_DEFAULTS;
+    let ctx = blosc2_create_dctx(dparams);
+    blosc2_decompress_ctx(&ctx, src, dest)
 }
 
-pub fn blosc2_create_cctx(_cparams: Blosc2Cparams) -> Blosc2Context {
-    // TODO: Implement
+pub fn blosc2_create_cctx(cparams: Blosc2Cparams) -> Blosc2Context {
     Blosc2Context {
         src: ptr::null(),
         dest: ptr::null_mut(),
@@ -209,41 +216,41 @@ pub fn blosc2_create_cctx(_cparams: Blosc2Cparams) -> Blosc2Context {
         header_overhead: 0,
         nblocks: 0,
         leftover: 0,
-        blocksize: 0,
-        splitmode: 0,
+        blocksize: cparams.blocksize,
+        splitmode: cparams.splitmode,
         output_bytes: 0,
         srcsize: 0,
         destsize: 0,
-        typesize: 0,
+        typesize: cparams.typesize,
         bstarts: ptr::null_mut(),
         special_type: 0,
-        compcode: 0,
-        compcode_meta: 0,
-        clevel: 0,
-        use_dict: 0,
+        compcode: cparams.compcode as i32,
+        compcode_meta: cparams.compcode_meta,
+        clevel: cparams.clevel as i32,
+        use_dict: cparams.use_dict,
         dict_buffer: ptr::null_mut(),
         dict_size: 0,
         dict_cdict: ptr::null_mut(),
         dict_ddict: ptr::null_mut(),
         filter_flags: 0,
-        filters: [0; crate::blosc::context::BLOSC2_MAX_FILTERS],
-        filters_meta: [0; crate::blosc::context::BLOSC2_MAX_FILTERS],
+        filters: cparams.filters,
+        filters_meta: cparams.filters_meta,
         urfilters: [Blosc2Filter { _placeholder: 0 }; BLOSC2_MAX_UDFILTERS],
-        prefilter: ptr::null_mut(),
+        prefilter: cparams.prefilter as *mut _,
         postfilter: ptr::null_mut(),
-        preparams: ptr::null_mut(),
+        preparams: cparams.preparams as *mut _,
         postparams: ptr::null_mut(),
         block_maskout: ptr::null_mut(),
         block_maskout_nitems: 0,
-        schunk: ptr::null_mut(),
+        schunk: cparams.schunk as *mut _,
         serial_context: ptr::null_mut(),
-        do_compress: 0,
-        tuner_params: ptr::null_mut(),
-        tuner_id: 0,
-        codec_params: ptr::null_mut(),
-        filter_params: [ptr::null_mut(); crate::blosc::context::BLOSC2_MAX_FILTERS],
-        nthreads: 1,
-        new_nthreads: 1,
+        do_compress: 1,
+        tuner_params: cparams.tuner_params as *mut _,
+        tuner_id: cparams.tuner_id,
+        codec_params: cparams.codec_params as *mut _,
+        filter_params: unsafe { std::mem::transmute(cparams.filter_params) },
+        nthreads: cparams.nthreads,
+        new_nthreads: cparams.nthreads,
         threads_started: 0,
         end_threads: 0,
         threads: ptr::null_mut(),
@@ -255,11 +262,55 @@ pub fn blosc2_create_cctx(_cparams: Blosc2Cparams) -> Blosc2Context {
 }
 
 pub fn blosc2_compress_ctx(
-    _context: &Blosc2Context,
-    _src: &[u8],
-    _dest: &mut [u8],
+    context: &mut Blosc2Context,
+    src: &[u8],
+    dest: &mut [u8],
 ) -> i32 {
-    // TODO: Implement
+    context.src = src.as_ptr();
+    context.srcsize = src.len() as i32;
+    context.dest = dest.as_mut_ptr();
+    context.destsize = dest.len() as i32;
+    
+    if context.clevel == 0 {
+        // Memcpy
+        let header_len = BLOSC_EXTENDED_HEADER_LENGTH as usize;
+        if (context.destsize as usize) < context.srcsize as usize + header_len {
+            return BLOSC2_ERROR_WRITE_BUFFER;
+        }
+        
+        // Write header (simplified)
+        let mut header = vec![0u8; header_len];
+        header[0] = BLOSC2_VERSION_FORMAT; // Version
+        header[1] = 1; // TODO: Why is this 1 in C-Blosc2?
+        header[2] = BLOSC_MEMCPYED | BLOSC_DOSHUFFLE | BLOSC_DOBITSHUFFLE; // Flags (Extended header implies DOSHUFFLE | DOBITSHUFFLE)
+        header[3] = context.typesize as u8;
+        
+        let nbytes = context.srcsize;
+        let nbytes_bytes = nbytes.to_le_bytes();
+        header[4..8].copy_from_slice(&nbytes_bytes);
+        
+        let blocksize = nbytes; // Single block
+        let blocksize_bytes = blocksize.to_le_bytes();
+        header[8..12].copy_from_slice(&blocksize_bytes);
+        
+        let cbytes = nbytes + header_len as i32;
+        let cbytes_bytes = cbytes.to_le_bytes();
+        header[12..16].copy_from_slice(&cbytes_bytes);
+        
+        // Copy header to dest
+        unsafe {
+            ptr::copy_nonoverlapping(header.as_ptr(), context.dest, header_len);
+        }
+        
+        // Copy data
+        unsafe {
+            ptr::copy_nonoverlapping(context.src, context.dest.add(header_len), context.srcsize as usize);
+        }
+        
+        return cbytes;
+    }
+    
+    // TODO: Implement compression for clevel > 0
     0
 }
 

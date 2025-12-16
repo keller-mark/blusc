@@ -49,6 +49,8 @@ fn compare_compressed_bytes() {
 
         let bytes = text.as_bytes();
 
+        println!("BOUND_BLOSC_NOSHUFFLE: {}", BOUND_BLOSC_NOSHUFFLE);
+
         let mut compressed_bound = vec![0; bytes.len() * 2];
         let stat_bound = bound_blosc2_compress(
             0,
@@ -238,7 +240,7 @@ fn floats_roundtrip_blusc_compress_then_blosc_decompress() {
             let mut cparams = BLUSC_BLOSC2_CPARAMS_DEFAULTS;
             cparams.clevel = 5;
             cparams.typesize = typesize as i32;
-            let context = blusc_blosc2_create_cctx(cparams);
+            let mut context = blusc_blosc2_create_cctx(cparams);
             
             let src_bytes = unsafe {
                 std::slice::from_raw_parts(
@@ -248,7 +250,7 @@ fn floats_roundtrip_blusc_compress_then_blosc_decompress() {
             };
 
             blusc_blosc2_compress_ctx(
-                &context,
+                &mut context,
                 src_bytes,
                 &mut dest,
             )
