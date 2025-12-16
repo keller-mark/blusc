@@ -13,6 +13,8 @@ WE DO NOT CARE ABOUT PERFORMANCE. IGNORE PROCESSOR-SPECIFIC OPTIMIZATIONS and IG
 
 Leveraging libc is NOT ACCEPTABLE. Use pure rust. Do not use unsafe blocks.
 
+Rust files that need the most work (i.e., still have many functions left to be ported from C to Rust): `src/blosc/schunk.rs`, `src/blosc/frame.rs`, `src/blosc/blosc2.rs`, and `src/blosclz.rs`.
+
 ## Note taking
 
 Leave comments in the Rust code reflecting the logic used in the C implementation for future reference.
