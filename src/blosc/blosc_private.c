@@ -5,11 +5,6 @@ Original C code from c-blosc2/blosc/blosc-private.h:
 #include "blosc2/blosc2-common.h"
 #include "blosc2.h"
 
-/***********************************************************************
-
-  Utility functions meant to be used internally.
-
-***********************************************************************/
 
 #define to_little(dest, src, itemsize)    endian_handler(true, dest, src, itemsize)
 #define from_little(dest, src, itemsize)  endian_handler(true, dest, src, itemsize)
