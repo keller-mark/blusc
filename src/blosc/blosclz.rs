@@ -1,973 +1,378 @@
 // Corresponds to c-blosc2/blosc/blosclz.c (and .h)
 
-// TODO: port
-
-/*
-
-#include "context.h"
-
-#define BLOSCLZ_VERSION_STRING "2.5.3"
-
-/**
-  Compress a block of data in the input buffer and returns the size of
-  compressed block. The size of input buffer is specified by
-  length. The minimum input buffer size is 16.
-
-  The output buffer must be at least 5% larger than the input buffer
-  and can not be smaller than 66 bytes.
-
-  If the input is not compressible, or output does not fit in maxout
-  bytes, the return value will be 0 and you will have to discard the
-  output buffer.
-
-  The acceleration parameter is related with the frequency for
-  updating the internal hash.  An acceleration of 1 means that the
-  internal hash is updated at full rate.  A value < 1 is not allowed
-  and will be silently set to 1.
-
-  The input buffer and the output buffer can not overlap.
-*/
-
-int blosclz_compress(int opt_level, const void* input, int length,
-                     void* output, int maxout, blosc2_context* ctx);
-
-/**
-  Decompress a block of compressed data and returns the size of the
-  decompressed block. If error occurs, e.g. the compressed data is
-  corrupted or the output buffer is not large enough, then 0 (zero)
-  will be returned instead.
-
-  The input buffer and the output buffer can not overlap.
-
-  Decompression is memory safe and guaranteed not to write the output buffer
-  more than what is specified in maxout.
- */
-
-int blosclz_decompress(const void* input, int length, void* output, int maxout);
-
-
-#include "fastcopy.h"
-#include "blosc2/blosc2-common.h"
-
-/*
- * Give hints to the compiler for branch prediction optimization.
- * This is not necessary anymore with modern CPUs.
- */
-#if 0 && defined(__GNUC__) && (__GNUC__ > 2)
-#define BLOSCLZ_LIKELY(c)    (__builtin_expect((c), 1))
-#define BLOSCLZ_UNLIKELY(c)  (__builtin_expect((c), 0))
-#else
-#define BLOSCLZ_LIKELY(c)    (c)
-#define BLOSCLZ_UNLIKELY(c)  (c)
-#endif
-
-/*
- * Use inlined functions for supported systems.
- */
-#if defined(_MSC_VER) && !defined(__cplusplus)   /* Visual Studio */
-#define inline __inline  /* Visual C is not C99, but supports some kind of inline */
-#endif
-
-#define MAX_COPY 32U
-#define MAX_DISTANCE 8191
-#define MAX_FARDISTANCE (65535 + MAX_DISTANCE - 1)
-
-#ifdef BLOSC_STRICT_ALIGN
-  #define BLOSCLZ_READU16(p) ((p)[0] | (p)[1]<<8)
-  #define BLOSCLZ_READU32(p) ((p)[0] | (p)[1]<<8 | (p)[2]<<16 | (p)[3]<<24)
-#else
-  #define BLOSCLZ_READU16(p) *((const uint16_t*)(p))
-  #define BLOSCLZ_READU32(p) *((const uint32_t*)(p))
-#endif
-
-#define HASH_LOG (14U)
-
-// This is used in LZ4 and seems to work pretty well here too
-#define HASH_FUNCTION(v, s, h) {      \
-  (v) = ((s) * 2654435761U) >> (32U - (h)); \
-}
-
-
-#if defined(__AVX2__)
-static uint8_t *get_run_32(uint8_t *ip, const uint8_t *ip_bound, const uint8_t *ref) {
-    uint8_t x = ip[-1];
-
-    while (ip < (ip_bound - (sizeof(__m256i)))) {
-        __m256i value, value2, cmp;
-        /* Broadcast the value for every byte in a 256-bit register */
-        memset(&value, x, sizeof(__m256i));
-        value2 = _mm256_loadu_si256((__m256i *)ref);
-        cmp = _mm256_cmpeq_epi64(value, value2);
-        if ((unsigned)_mm256_movemask_epi8(cmp) != 0xFFFFFFFF) {
-            /* Return the byte that starts to differ */
-            while (*ref++ == x) ip++;
-            return ip;
-        }
-        else {
-            ip += sizeof(__m256i);
-            ref += sizeof(__m256i);
-        }
-    }
-    /* Look into the remainder */
-    while ((ip < ip_bound) && (*ref++ == x)) ip++;
-    return ip;
-}
-#endif
-
-#if defined(__SSE2__)
-uint8_t *get_run_16(uint8_t *ip, const uint8_t *ip_bound, const uint8_t *ref) {
-  uint8_t x = ip[-1];
-
-  while (ip < (ip_bound - sizeof(__m128i))) {
-    __m128i value, value2, cmp;
-    /* Broadcast the value for every byte in a 128-bit register */
-    memset(&value, x, sizeof(__m128i));
-    value2 = _mm_loadu_si128((__m128i *)ref);
-    cmp = _mm_cmpeq_epi32(value, value2);
-    if (_mm_movemask_epi8(cmp) != 0xFFFF) {
-      /* Return the byte that starts to differ */
-      while (*ref++ == x) ip++;
-      return ip;
-    }
-    else {
-      ip += sizeof(__m128i);
-      ref += sizeof(__m128i);
-    }
-  }
-  /* Look into the remainder */
-  while ((ip < ip_bound) && (*ref++ == x)) ip++;
-  return ip;
-}
-
-#endif
-
-
-static uint8_t *get_run(uint8_t *ip, const uint8_t *ip_bound, const uint8_t *ref) {
-  uint8_t x = ip[-1];
-  int64_t value, value2;
-  /* Broadcast the value for every byte in a 64-bit register */
-  memset(&value, x, 8);
-  /* safe because the outer check against ip limit */
-  while (ip < (ip_bound - sizeof(int64_t))) {
-#if defined(BLOSC_STRICT_ALIGN)
-    memcpy(&value2, ref, 8);
-#else
-    value2 = ((int64_t*)ref)[0];
-#endif
-    if (value != value2) {
-      /* Return the byte that starts to differ */
-      while (*ref++ == x) ip++;
-      return ip;
-    }
-    else {
-      ip += 8;
-      ref += 8;
-    }
-  }
-  /* Look into the remainder */
-  while ((ip < ip_bound) && (*ref++ == x)) ip++;
-  return ip;
-}
-
-
-/* Return the byte that starts to differ */
-uint8_t *get_match(uint8_t *ip, const uint8_t *ip_bound, const uint8_t *ref) {
-#if !defined(BLOSC_STRICT_ALIGN)
-  while (ip < (ip_bound - sizeof(int64_t))) {
-    if (*(int64_t*)ref != *(int64_t*)ip) {
-      /* Return the byte that starts to differ */
-      while (*ref++ == *ip++) {}
-      return ip;
-    }
-    else {
-      ip += sizeof(int64_t);
-      ref += sizeof(int64_t);
-    }
-  }
-#endif
-  /* Look into the remainder */
-  while ((ip < ip_bound) && (*ref++ == *ip++)) {}
-  return ip;
-}
-
-
-#if defined(__SSE2__)
-static uint8_t *get_match_16(uint8_t *ip, const uint8_t *ip_bound, const uint8_t *ref) {
-  __m128i value, value2, cmp;
-
-  while (ip < (ip_bound - sizeof(__m128i))) {
-    value = _mm_loadu_si128((__m128i *) ip);
-    value2 = _mm_loadu_si128((__m128i *) ref);
-    cmp = _mm_cmpeq_epi32(value, value2);
-    if (_mm_movemask_epi8(cmp) != 0xFFFF) {
-      /* Return the byte that starts to differ */
-      while (*ref++ == *ip++) {}
-      return ip;
-    }
-    else {
-      ip += sizeof(__m128i);
-      ref += sizeof(__m128i);
-    }
-  }
-  /* Look into the remainder */
-  while ((ip < ip_bound) && (*ref++ == *ip++)) {}
-  return ip;
-}
-#endif
-
-
-#if defined(__AVX2__)
-static uint8_t *get_match_32(uint8_t *ip, const uint8_t *ip_bound, const uint8_t *ref) {
-
-  while (ip < (ip_bound - sizeof(__m256i))) {
-    __m256i value, value2, cmp;
-    value = _mm256_loadu_si256((__m256i *) ip);
-    value2 = _mm256_loadu_si256((__m256i *)ref);
-    cmp = _mm256_cmpeq_epi64(value, value2);
-    if ((unsigned)_mm256_movemask_epi8(cmp) != 0xFFFFFFFF) {
-      /* Return the byte that starts to differ */
-      while (*ref++ == *ip++) {}
-      return ip;
-    }
-    else {
-      ip += sizeof(__m256i);
-      ref += sizeof(__m256i);
-    }
-  }
-  /* Look into the remainder */
-  while ((ip < ip_bound) && (*ref++ == *ip++)) {}
-  return ip;
-}
-#endif
-
-
-static uint8_t* get_run_or_match(uint8_t* ip, uint8_t* ip_bound, const uint8_t* ref, bool run) {
-  if (BLOSCLZ_UNLIKELY(run)) {
-#if defined(__AVX2__)
-    // Extensive experiments on AMD Ryzen3 say that regular get_run is faster
-    // ip = get_run_32(ip, ip_bound, ref);
-    ip = get_run(ip, ip_bound, ref);
-#elif defined(__SSE2__)
-    // Extensive experiments on AMD Ryzen3 say that regular get_run is faster
-    // ip = get_run_16(ip, ip_bound, ref);
-    ip = get_run(ip, ip_bound, ref);
-#else
-    ip = get_run(ip, ip_bound, ref);
-#endif
-  }
-  else {
-#if defined(__AVX2__)
-    // Extensive experiments on AMD Ryzen3 say that regular get_match_16 is faster
-    // ip = get_match_32(ip, ip_bound, ref);
-    ip = get_match_16(ip, ip_bound, ref);
-#elif defined(__SSE2__)
-    ip = get_match_16(ip, ip_bound, ref);
-#else
-    ip = get_match(ip, ip_bound, ref);
-#endif
-  }
-
-  return ip;
-}
-
-
-#define LITERAL(ip, op, op_limit, anchor, copy) {       \
-  if (BLOSCLZ_UNLIKELY((op) + 2 > (op_limit)))          \
-    goto out;                                           \
-  *(op)++ = *(anchor)++;                                \
-  (ip) = (anchor);                                      \
-  (copy)++;                                             \
-  if (BLOSCLZ_UNLIKELY((copy) == MAX_COPY)) {           \
-    (copy) = 0;                                         \
-    *(op)++ = MAX_COPY-1;                               \
-  }                                                     \
-}
-
-#define LITERAL2(ip, anchor, copy) {                    \
-  oc++; (anchor)++;                                     \
-  (ip) = (anchor);                                      \
-  (copy)++;                                             \
-  if (BLOSCLZ_UNLIKELY((copy) == MAX_COPY)) {           \
-    (copy) = 0;                                         \
-    oc++;                                               \
-  }                                                     \
-}
-
-#define MATCH_SHORT(op, op_limit, len, distance) {        \
-  if (BLOSCLZ_UNLIKELY((op) + 2 > (op_limit)))            \
-    goto out;                                             \
-  *(op)++ = (uint8_t)(((len) << 5U) + ((distance) >> 8U));\
-  *(op)++ = (uint8_t)(((distance) & 255U));               \
-}
-
-#define MATCH_LONG(op, op_limit, len, distance) {       \
-  if (BLOSCLZ_UNLIKELY((op) + 1 > (op_limit)))          \
-    goto out;                                           \
-  *(op)++ = (uint8_t)((7U << 5U) + ((distance) >> 8U)); \
-  for ((len) -= 7; (len) >= 255; (len) -= 255) {        \
-    if (BLOSCLZ_UNLIKELY((op) + 1 > (op_limit)))        \
-      goto out;                                         \
-    *(op)++ = 255;                                      \
-  }                                                     \
-  if (BLOSCLZ_UNLIKELY((op) + 2 > (op_limit)))          \
-    goto out;                                           \
-  *(op)++ = (uint8_t)(len);                             \
-  *(op)++ = (uint8_t)(((distance) & 255U));             \
-}
-
-#define MATCH_SHORT_FAR(op, op_limit, len, distance) {      \
-  if (BLOSCLZ_UNLIKELY((op) + 4 > (op_limit)))              \
-    goto out;                                               \
-  *(op)++ = (uint8_t)(((len) << 5U) + 31);                  \
-  *(op)++ = 255;                                            \
-  *(op)++ = (uint8_t)((distance) >> 8U);                    \
-  *(op)++ = (uint8_t)((distance) & 255U);                   \
-}
-
-#define MATCH_LONG_FAR(op, op_limit, len, distance) {       \
-  if (BLOSCLZ_UNLIKELY((op) + 1 > (op_limit)))              \
-    goto out;                                               \
-  *(op)++ = (7U << 5U) + 31;                                \
-  for ((len) -= 7; (len) >= 255; (len) -= 255) {            \
-    if (BLOSCLZ_UNLIKELY((op) + 1 > (op_limit)))            \
-      goto out;                                             \
-    *(op)++ = 255;                                          \
-  }                                                         \
-  if (BLOSCLZ_UNLIKELY((op) + 4 > (op_limit)))              \
-    goto out;                                               \
-  *(op)++ = (uint8_t)(len);                                 \
-  *(op)++ = 255;                                            \
-  *(op)++ = (uint8_t)((distance) >> 8U);                    \
-  *(op)++ = (uint8_t)((distance) & 255U);                   \
-}
-
-
-// Get a guess for the compressed size of a buffer
-static double get_cratio(uint8_t* ibase, int maxlen, int minlen, int ipshift, uint32_t htab[], int8_t hashlog) {
-  uint8_t* ip = ibase;
-  int32_t oc = 0;
-  const uint16_t hashlen = (1U << (uint8_t)hashlog);
-  uint32_t hval;
-  uint32_t seq;
-  uint8_t copy;
-  // Make a tradeoff between testing too much and too little
-  uint16_t limit = (maxlen > hashlen) ? hashlen : maxlen;
-  uint8_t* ip_bound = ibase + limit - 1;
-  uint8_t* ip_limit = ibase + limit - 12;
-
-  // Initialize the hash table to distances of 0
-  memset(htab, 0, hashlen * sizeof(uint32_t));
-
-  /* we start with literal copy */
-  copy = 4;
-  oc += 5;
-
-  /* main loop */
-  while (BLOSCLZ_LIKELY(ip < ip_limit)) {
-    const uint8_t* ref;
-    unsigned distance;
-    uint8_t* anchor = ip;    /* comparison starting-point */
-
-    /* find potential match */
-    seq = BLOSCLZ_READU32(ip);
-    HASH_FUNCTION(hval, seq, hashlog)
-    ref = ibase + htab[hval];
-
-    /* calculate distance to the match */
-    distance = (unsigned int)(anchor - ref);
-
-    /* update hash table */
-    htab[hval] = (uint32_t) (anchor - ibase);
-
-    if (distance == 0 || (distance >= MAX_FARDISTANCE)) {
-      LITERAL2(ip, anchor, copy)
-      continue;
-    }
-
-    /* is this a match? check the first 4 bytes */
-    if (BLOSCLZ_READU32(ref) == BLOSCLZ_READU32(ip)) {
-      ref += 4;
-    }
-    else {
-      /* no luck, copy as a literal */
-      LITERAL2(ip, anchor, copy)
-      continue;
-    }
-
-    /* last matched byte */
-    ip = anchor + 4;
-
-    /* distance is biased */
-    distance--;
-
-    /* get runs or matches; zero distance means a run */
-    ip = get_run_or_match(ip, ip_bound, ref, !distance);
-
-    ip -= ipshift;
-    int len = (int)(ip - anchor);
-    if (len < minlen) {
-      LITERAL2(ip, anchor, copy)
-      continue;
-    }
-
-    /* if we haven't copied anything, adjust the output counter */
-    if (!copy)
-      oc--;
-    /* reset literal counter */
-    copy = 0;
-
-    /* encode the match */
-    if (distance < MAX_DISTANCE) {
-      if (len >= 7) {
-        oc += ((len - 7) / 255) + 1;
-      }
-      oc += 2;
-    }
-    else {
-      /* far away, but not yet in the another galaxy... */
-      if (len >= 7) {
-        oc += ((len - 7) / 255) + 1;
-      }
-      oc += 4;
-    }
-
-    /* update the hash at match boundary */
-    seq = BLOSCLZ_READU32(ip);
-    HASH_FUNCTION(hval, seq, hashlog)
-    htab[hval] = (uint32_t)(ip++ - ibase);
-    ip++;
-    /* assuming literal copy */
-    oc++;
-  }
-
-  double ic = (double)(ip - ibase);
-  return ic / (double)oc;
-}
-
-
-int blosclz_compress(const int clevel, const void* input, int length,
-                     void* output, int maxout, blosc2_context* ctx) {
-  BLOSC_UNUSED_PARAM(ctx);
-  uint8_t* ibase = (uint8_t*)input;
-  uint32_t htab[1U << (uint8_t)HASH_LOG];
-
-  /* When we go back in a match (shift), we obtain quite different compression properties.
-   * It looks like 4 is more useful in combination with bitshuffle and small typesizes
-   * Fallback to 4 because it provides more consistent results for large cratios.
-   * UPDATE: new experiments show that using a value of 3 is a bit better, at least for ERA5.
-   * UPDATE 2: go back to 4, as they seem to provide better cratios in general.
-   *
-   * In this block we also check cratios for the beginning of the buffers and
-   * eventually discard those that are small (take too long to decompress).
-   * This process is called _entropy probing_.
-   */
-  unsigned ipshift = 4;
-  // Minimum lengths for encoding (normally it is good to match the shift value)
-  unsigned minlen = 4;
-
-  uint8_t hashlog_[10] = {0, HASH_LOG - 2, HASH_LOG - 1, HASH_LOG, HASH_LOG,
-                          HASH_LOG, HASH_LOG, HASH_LOG, HASH_LOG, HASH_LOG};
-  uint8_t hashlog = hashlog_[clevel];
-
-  // Experiments say that checking 1/4 of the buffer is enough to figure out approx cratio
-  // UPDATE: new experiments with ERA5 datasets (float32) say that checking the whole buffer
-  // is better (specially when combined with bitshuffle).
-  // The loss in speed for checking the whole buffer is pretty negligible too.
-  int maxlen = length;
-  if (clevel < 2) {
-    maxlen /= 8;
-  }
-  else if (clevel < 4) {
-    maxlen /= 4;
-  }
-  else if (clevel < 7) {
-    maxlen /= 2;
-  }
-  // Start probing somewhere inside the buffer
-  int shift = length - maxlen;
-  // Actual entropy probing!
-  double cratio = get_cratio(ibase + shift, maxlen, minlen, ipshift, htab, hashlog);
-  // discard probes with small compression ratios (too expensive)
-  double cratio_[10] = {0, 2, 1.5, 1.2, 1.2, 1.2, 1.2, 1.15, 1.1, 1.0};
-  if (cratio < cratio_[clevel]) {
-      goto out;
-  }
-
-  uint8_t* ip = ibase;
-  uint8_t* ip_bound = ibase + length - 1;
-  uint8_t* ip_limit = ibase + length - 12;
-  uint8_t* op = (uint8_t*)output;
-  const uint8_t* op_limit = op + maxout;
-  uint32_t seq;
-  uint8_t copy;
-  uint32_t hval;
-
-  /* input and output buffer cannot be less than 16 and 66 bytes or we can get into trouble */
-  if (length < 16 || maxout < 66) {
-    return 0;
-  }
-
-  // Initialize the hash table
-  memset(htab, 0, (1U << hashlog) * sizeof(uint32_t));
-
-  /* we start with literal copy */
-  copy = 4;
-  *op++ = MAX_COPY - 1;
-  *op++ = *ip++;
-  *op++ = *ip++;
-  *op++ = *ip++;
-  *op++ = *ip++;
-
-  /* main loop */
-  while (BLOSCLZ_LIKELY(ip < ip_limit)) {
-    const uint8_t* ref;
-    unsigned distance;
-    uint8_t* anchor = ip;    /* comparison starting-point */
-
-    /* find potential match */
-    seq = BLOSCLZ_READU32(ip);
-    HASH_FUNCTION(hval, seq, hashlog)
-    ref = ibase + htab[hval];
-
-    /* calculate distance to the match */
-    distance = (unsigned int)(anchor - ref);
-
-    /* update hash table */
-    htab[hval] = (uint32_t) (anchor - ibase);
-
-    if (distance == 0 || (distance >= MAX_FARDISTANCE)) {
-      LITERAL(ip, op, op_limit, anchor, copy)
-      continue;
-    }
-
-    /* is this a match? check the first 4 bytes */
-    if (BLOSCLZ_UNLIKELY(BLOSCLZ_READU32(ref) == BLOSCLZ_READU32(ip))) {
-      ref += 4;
-    } else {
-      /* no luck, copy as a literal */
-      LITERAL(ip, op, op_limit, anchor, copy)
-      continue;
-    }
-
-    /* last matched byte */
-    ip = anchor + 4;
-
-    /* distance is biased */
-    distance--;
-
-    /* get runs or matches; zero distance means a run */
-    ip = get_run_or_match(ip, ip_bound, ref, !distance);
-
-    /* length is biased, '1' means a match of 3 bytes */
-    ip -= ipshift;
-
-    unsigned len = (int)(ip - anchor);
-
-    // Encoding short lengths is expensive during decompression
-    if (len < minlen || (len <= 5 && distance >= MAX_DISTANCE)) {
-      LITERAL(ip, op, op_limit, anchor, copy)
-      continue;
-    }
-
-    /* if we have copied something, adjust the copy count */
-    if (copy)
-      /* copy is biased, '0' means 1 byte copy */
-      *(op - copy - 1) = (uint8_t)(copy - 1);
-    else
-      /* back, to overwrite the copy count */
-      op--;
-    /* reset literal counter */
-    copy = 0;
-
-    /* encode the match */
-    if (distance < MAX_DISTANCE) {
-      if (len < 7) {
-        MATCH_SHORT(op, op_limit, len, distance)
-      } else {
-        MATCH_LONG(op, op_limit, len, distance)
-      }
-    } else {
-      /* far away, but not yet in the another galaxy... */
-      distance -= MAX_DISTANCE;
-      if (len < 7) {
-        MATCH_SHORT_FAR(op, op_limit, len, distance)
-      } else {
-        MATCH_LONG_FAR(op, op_limit, len, distance)
-      }
-    }
-
-    /* update the hash at match boundary */
-    seq = BLOSCLZ_READU32(ip);
-    HASH_FUNCTION(hval, seq, hashlog)
-    htab[hval] = (uint32_t) (ip++ - ibase);
-    if (clevel == 9) {
-      // In some situations, including a second hash proves to be useful,
-      // but not in others.  Activating here in max clevel only.
-      seq >>= 8U;
-      HASH_FUNCTION(hval, seq, hashlog)
-      htab[hval] = (uint32_t) (ip++ - ibase);
-    }
-    else {
-      ip++;
-    }
-
-    if (BLOSCLZ_UNLIKELY(op + 1 > op_limit))
-      goto out;
-
-    /* assuming literal copy */
-    *op++ = MAX_COPY - 1;
-  }
-
-  /* left-over as literal copy */
-  while (BLOSCLZ_UNLIKELY(ip <= ip_bound)) {
-    if (BLOSCLZ_UNLIKELY(op + 2 > op_limit)) goto out;
-    *op++ = *ip++;
-    copy++;
-    if (BLOSCLZ_UNLIKELY(copy == MAX_COPY)) {
-      copy = 0;
-      *op++ = MAX_COPY - 1;
-    }
-  }
-
-  /* if we have copied something, adjust the copy length */
-  if (copy)
-    *(op - copy - 1) = (uint8_t)(copy - 1);
-  else
-    op--;
-
-  /* marker for blosclz */
-  *(uint8_t*)output |= (1U << 5U);
-
-  return (int)(op - (uint8_t*)output);
-
-  out:
-  return 0;
-}
-
-// See https://habr.com/en/company/yandex/blog/457612/
-#if defined(__AVX2__)
-
-#if defined(_MSC_VER)
-#define ALIGNED_(x) __declspec(align(x))
-#else
-#if defined(__GNUC__)
-#define ALIGNED_(x) __attribute__ ((aligned(x)))
-#endif
-#endif
-#define ALIGNED_TYPE_(t, x) t ALIGNED_(x)
-
-static unsigned char* copy_match_16(unsigned char *op, const unsigned char *match, int32_t len)
-{
-  size_t offset = op - match;
-  while (len >= 16) {
-
-    static const ALIGNED_TYPE_(uint8_t, 16) masks[] =
-      {
-                0,  1,  2,  1,  4,  1,  4,  2,  8,  7,  6,  5,  4,  3,  2,  1, // offset = 0, not used as mask, but for shift
-                0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0, // offset = 1
-                0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,  0,  1,
-                0,  1,  2,  0,  1,  2,  0,  1,  2,  0,  1,  2,  0,  1,  2,  0,
-                0,  1,  2,  3,  0,  1,  2,  3,  0,  1,  2,  3,  0,  1,  2,  3,
-                0,  1,  2,  3,  4,  0,  1,  2,  3,  4,  0,  1,  2,  3,  4,  0,
-                0,  1,  2,  3,  4,  5,  0,  1,  2,  3,  4,  5,  0,  1,  2,  3,
-                0,  1,  2,  3,  4,  5,  6,  0,  1,  2,  3,  4,  5,  6,  0,  1,
-                0,  1,  2,  3,  4,  5,  6,  7,  0,  1,  2,  3,  4,  5,  6,  7,
-                0,  1,  2,  3,  4,  5,  6,  7,  8,  0,  1,  2,  3,  4,  5,  6,
-                0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  0,  1,  2,  3,  4,  5,
-                0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10,  0,  1,  2,  3,  4,
-                0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11,  0,  1,  2,  3,
-                0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12,  0,  1,  2,
-                0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13,  0,  1,
-                0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,  0,
-                0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,  15, // offset = 16
-      };
-
-    _mm_storeu_si128((__m128i *)(op),
-                     _mm_shuffle_epi8(_mm_loadu_si128((const __m128i *)(match)),
-                                      _mm_load_si128((const __m128i *)(masks) + offset)));
-
-    match += masks[offset];
-
-    op += 16;
-    len -= 16;
-  }
-  // Deal with remainders
-  for (; len > 0; len--) {
-    *op++ = *match++;
-  }
-  return op;
-}
-#endif
-
-// LZ4 wildCopy which can reach excellent copy bandwidth (even if insecure)
-static inline void wild_copy(uint8_t *out, const uint8_t* from, uint8_t* end) {
-  uint8_t* d = out;
-  const uint8_t* s = from;
-  uint8_t* const e = end;
-
-  do { memcpy(d,s,8); d+=8; s+=8; } while (d<e);
-}
-
-int blosclz_decompress(const void* input, int length, void* output, int maxout) {
-  const uint8_t* ip = (const uint8_t*)input;
-  const uint8_t* ip_limit = ip + length;
-  uint8_t* op = (uint8_t*)output;
-  uint32_t ctrl;
-  uint8_t* op_limit = op + maxout;
-  if (BLOSCLZ_UNLIKELY(length == 0)) {
-    return 0;
-  }
-  ctrl = (*ip++) & 31U;
-
-  while (1) {
-    if (ctrl >= 32) {
-      // match
-      int32_t len = (int32_t)(ctrl >> 5U) - 1 ;
-      int32_t ofs = (int32_t)(ctrl & 31U) << 8U;
-      uint8_t code;
-      const uint8_t* ref = op - ofs;
-
-      if (len == 7 - 1) {
-        do {
-          if (BLOSCLZ_UNLIKELY(ip + 1 >= ip_limit)) {
-            return 0;
-          }
-          code = *ip++;
-          len += code;
-        } while (code == 255);
-      }
-      else {
-        if (BLOSCLZ_UNLIKELY(ip + 1 >= ip_limit)) {
-          return 0;
-        }
-      }
-      code = *ip++;
-      len += 3;
-      ref -= code;
-
-      /* match from 16-bit distance */
-      if (BLOSCLZ_UNLIKELY(code == 255)) {
-        if (ofs == (31U << 8U)) {
-          if (ip + 1 >= ip_limit) {
-            return 0;
-          }
-          ofs = (*ip++) << 8U;
-          ofs += *ip++;
-          ref = op - ofs - MAX_DISTANCE;
-        }
-      }
-
-      if (BLOSCLZ_UNLIKELY(op + len > op_limit)) {
-        return 0;
-      }
-
-      if (BLOSCLZ_UNLIKELY(ref - 1 < (uint8_t*)output)) {
-        return 0;
-      }
-
-      if (BLOSCLZ_UNLIKELY(ip >= ip_limit)) break;
-      ctrl = *ip++;
-
-      ref--;
-      if (ref == op - 1) {
-        /* optimized copy for a run */
-        memset(op, *ref, len);
-        op += len;
-      }
-      else if ((op - ref >= 8) && (op_limit - op >= len + 8)) {
-        // copy with an overlap not larger than 8
-        wild_copy(op, ref, op + len);
-        op += len;
-      }
-      else {
-        // general copy with any overlap
-#if 0 && defined(__AVX2__)
-        if (op - ref <= 16) {
-          // This is not faster on a combination of compilers (clang, gcc, icc) or machines, but
-          // it is not too slower either.
-          op = copy_match_16(op, ref, len);
-        }
-        else {
-#endif
-          op = copy_match(op, ref, (unsigned) len);
-#if 0 && defined(__AVX2__)
-        }
-#endif
-      }
-    }
-    else {
-      // literal
-      ctrl++;
-      if (BLOSCLZ_UNLIKELY(op + ctrl > op_limit)) {
-        return 0;
-      }
-      if (BLOSCLZ_UNLIKELY(ip + ctrl > ip_limit)) {
-        return 0;
-      }
-
-      memcpy(op, ip, ctrl); op += ctrl; ip += ctrl;
-      // On GCC-6, fastcopy this is still faster than plain memcpy
-      // However, using recent CLANG/LLVM 9.0, there is almost no difference
-      // in performance.
-      // And starting on CLANG/LLVM 10 and GCC 9, memcpy is generally faster.
-      // op = fastcopy(op, ip, (unsigned) ctrl); ip += ctrl;
-
-      if (BLOSCLZ_UNLIKELY(ip >= ip_limit)) break;
-      ctrl = *ip++;
-    }
-  }
-
-  return (int)(op - (uint8_t*)output);
-}
-
-
-
-*/
 use crate::blosc::context::Blosc2Context;
-use std::cmp;
+// use crate::blosc::fastcopy::fastcopy; // Not used directly, we use copy_match or slice copy
+// use crate::blosc::fastcopy::copy_match; // Implemented locally to handle overlap
 
 const MAX_COPY: usize = 32;
 const MAX_DISTANCE: usize = 8191;
 const MAX_FARDISTANCE: usize = 65535 + MAX_DISTANCE - 1;
 const HASH_LOG: usize = 14;
-const HASH_SIZE: usize = 1 << HASH_LOG;
+
+// Helper functions
+
+#[inline]
+fn get_run(input: &[u8], mut ip: usize, ip_bound: usize, mut ref_pos: usize) -> usize {
+    let x = input[ip - 1];
+    while ip < (ip_bound - 8) {
+        let val_ref = u64::from_ne_bytes(input[ref_pos..ref_pos+8].try_into().unwrap());
+        let val_x = u64::from_ne_bytes([x; 8]);
+        
+        if val_x != val_ref {
+            while input[ref_pos] == x {
+                ref_pos += 1;
+                ip += 1;
+            }
+            return ip;
+        } else {
+            ip += 8;
+            ref_pos += 8;
+        }
+    }
+    while ip < ip_bound && input[ref_pos] == x {
+        ref_pos += 1;
+        ip += 1;
+    }
+    ip
+}
+
+#[inline]
+fn get_match(input: &[u8], mut ip: usize, ip_bound: usize, mut ref_pos: usize) -> usize {
+    while ip < (ip_bound - 8) {
+        let val_ip = u64::from_ne_bytes(input[ip..ip+8].try_into().unwrap());
+        let val_ref = u64::from_ne_bytes(input[ref_pos..ref_pos+8].try_into().unwrap());
+        
+        if val_ref != val_ip {
+            while input[ref_pos] == input[ip] {
+                ref_pos += 1;
+                ip += 1;
+            }
+            return ip;
+        } else {
+            ip += 8;
+            ref_pos += 8;
+        }
+    }
+    while ip < ip_bound && input[ref_pos] == input[ip] {
+        ref_pos += 1;
+        ip += 1;
+    }
+    ip
+}
+
+#[inline]
+fn get_run_or_match(input: &[u8], ip: usize, ip_bound: usize, ref_pos: usize, run: bool) -> usize {
+    if run {
+        get_run(input, ip, ip_bound, ref_pos)
+    } else {
+        get_match(input, ip, ip_bound, ref_pos)
+    }
+}
+
+#[inline]
+fn hash_function(v: u32, hashlog: u8) -> usize {
+    ((v.wrapping_mul(2654435761)) >> (32 - hashlog)) as usize
+}
+
+// Get a guess for the compressed size of a buffer
+fn get_cratio(
+    input: &[u8],
+    ibase: usize,
+    maxlen: usize,
+    minlen: usize,
+    ipshift: usize,
+    htab: &mut [u32],
+    hashlog: u8,
+) -> f64 {
+    let mut ip = ibase;
+    let mut oc = 0;
+    let hashlen = 1 << hashlog;
+    let mut copy = 4;
+    oc += 5;
+    
+    let limit = if maxlen > hashlen { hashlen } else { maxlen };
+    let ip_bound = ibase + limit - 1;
+    let ip_limit = ibase + limit - 12;
+    
+    // Initialize hash table
+    htab.fill(0);
+    
+    while ip < ip_limit {
+        let mut anchor = ip;
+        let seq = u32::from_ne_bytes(input[ip..ip+4].try_into().unwrap());
+        let hval = hash_function(seq, hashlog);
+        let mut ref_pos = ibase + htab[hval] as usize;
+        
+        let distance = anchor - ref_pos;
+        htab[hval] = (anchor - ibase) as u32;
+        
+        if distance == 0 || distance >= MAX_FARDISTANCE {
+            // LITERAL2
+            oc += 1;
+            anchor += 1;
+            ip = anchor;
+            copy += 1;
+            if copy == MAX_COPY {
+                copy = 0;
+                oc += 1;
+            }
+            continue;
+        }
+        
+        if u32::from_ne_bytes(input[ref_pos..ref_pos+4].try_into().unwrap()) == u32::from_ne_bytes(input[ip..ip+4].try_into().unwrap()) {
+            ref_pos += 4;
+        } else {
+            // LITERAL2
+            oc += 1;
+            anchor += 1;
+            ip = anchor;
+            copy += 1;
+            if copy == MAX_COPY {
+                copy = 0;
+                oc += 1;
+            }
+            continue;
+        }
+        
+        ip = anchor + 4;
+        let distance_biased = distance - 1;
+        
+        ip = get_run_or_match(input, ip, ip_bound, ref_pos, distance_biased == 0);
+        
+        ip -= ipshift;
+        let len = ip - anchor;
+        
+        if len < minlen {
+            // LITERAL2
+            oc += 1;
+            anchor += 1;
+            ip = anchor;
+            copy += 1;
+            if copy == MAX_COPY {
+                copy = 0;
+                oc += 1;
+            }
+            continue;
+        }
+        
+        if copy == 0 {
+            oc -= 1;
+        }
+        copy = 0;
+        
+        if distance < MAX_DISTANCE {
+            if len >= 7 {
+                oc += ((len - 7) / 255) + 1;
+            }
+            oc += 2;
+        } else {
+            if len >= 7 {
+                oc += ((len - 7) / 255) + 1;
+            }
+            oc += 4;
+        }
+        
+        let seq = u32::from_ne_bytes(input[ip..ip+4].try_into().unwrap());
+        let hval = hash_function(seq, hashlog);
+        htab[hval] = (ip - ibase) as u32;
+        ip += 1;
+        oc += 1;
+    }
+    
+    let ic = (ip - ibase) as f64;
+    ic / (oc as f64)
+}
 
 pub fn blosclz_compress(
-    _opt_level: i32,
+    clevel: i32,
     input: &[u8],
     output: &mut [u8],
     maxout: usize,
     _ctx: &Blosc2Context,
 ) -> i32 {
     let length = input.len();
-    if length == 0 { return 0; }
+    let ibase = 0;
+    let mut htab = vec![0u32; 1 << HASH_LOG];
     
-    let mut ip = 0;
-    let mut op = 0;
-    let mut anchor = 0;
-    let ip_limit = if length > 4 { length - 4 } else { 0 };
+    let ipshift = 4;
+    let minlen = 4;
     
-    let mut htab = [0usize; HASH_SIZE];
+    let hashlog_arr = [0, HASH_LOG - 2, HASH_LOG - 1, HASH_LOG, HASH_LOG,
+                          HASH_LOG, HASH_LOG, HASH_LOG, HASH_LOG, HASH_LOG];
+    let hashlog = hashlog_arr[clevel as usize] as u8;
     
-    if maxout < 66 { return 0; }
-    
-    if op >= maxout { return 0; }
-    output[op] = input[ip];
-    op += 1;
-    ip += 1;
-    anchor = ip;
-    
-    let mut copy = 0;
-    
-    while ip < ip_limit {
-        let v = u32::from_ne_bytes([input[ip], input[ip+1], input[ip+2], input[ip+3]]);
-        let h = (v.wrapping_mul(2654435761)) >> (32 - HASH_LOG);
-        let ref_pos = htab[h as usize];
-        htab[h as usize] = ip;
-        
-        if ref_pos < ip 
-           && (ip - ref_pos) <= MAX_FARDISTANCE
-           && ref_pos > 0
-           && input[ref_pos] == input[ip]
-           && input[ref_pos+1] == input[ip+1]
-           && input[ref_pos+2] == input[ip+2]
-        {
-             let distance = ip - ref_pos;
-             let mut len = 3;
-             let mut ref_ptr = ref_pos + 3;
-             let mut ip_ptr = ip + 3;
-             
-             while ip_ptr < length && ref_ptr < ip && input[ref_ptr] == input[ip_ptr] {
-                 ip_ptr += 1;
-                 ref_ptr += 1;
-                 len += 1;
-             }
-             
-             if copy != 0 {
-                 output[op - copy - 1] = (copy - 1) as u8;
-                 copy = 0;
-             } else {
-                 op -= 1;
-             }
-             
-             if distance <= MAX_DISTANCE {
-                 if len < 7 {
-                     if op + 2 > maxout { return 0; }
-                     output[op] = ((len << 5) + (distance >> 8)) as u8;
-                     op += 1;
-                     output[op] = (distance & 255) as u8;
-                     op += 1;
-                 } else {
-                     if op + 2 + len/255 + 1 > maxout { return 0; }
-                     output[op] = ((7 << 5) + (distance >> 8)) as u8;
-                     op += 1;
-                     let mut l = len - 7;
-                     while l >= 255 {
-                         output[op] = 255;
-                         op += 1;
-                         l -= 255;
-                     }
-                     output[op] = l as u8;
-                     op += 1;
-                     output[op] = (distance & 255) as u8;
-                     op += 1;
-                 }
-             } else {
-                 if op + 2 + len/255 + 3 > maxout { return 0; }
-                 output[op] = ((7 << 5) + 31) as u8;
-                 op += 1;
-                 let mut l = len - 7;
-                 while l >= 255 {
-                     output[op] = 255;
-                     op += 1;
-                     l -= 255;
-                 }
-                 output[op] = l as u8;
-                 op += 1;
-                 output[op] = 255;
-                 op += 1;
-                 output[op] = (distance >> 8) as u8;
-                 op += 1;
-                 output[op] = (distance & 255) as u8;
-                 op += 1;
-             }
-             
-             anchor = ip_ptr;
-             ip = ip_ptr;
-             
-             if ip < ip_limit {
-                 if op + 2 > maxout { return 0; }
-                 output[op] = input[ip];
-                 op += 1;
-                 ip += 1;
-                 anchor = ip;
-                 copy = 0;
-             }
-        } else {
-             if op + 2 > maxout { return 0; }
-             output[op] = input[anchor];
-             op += 1;
-             anchor += 1;
-             ip = anchor;
-             copy += 1;
-             if copy == MAX_COPY {
-                 copy = 0;
-                 output[op] = (MAX_COPY - 1) as u8;
-                 op += 1;
-             }
-        }
+    let mut maxlen = length;
+    if clevel < 2 {
+        maxlen /= 8;
+    } else if clevel < 4 {
+        maxlen /= 4;
+    } else if clevel < 7 {
+        maxlen /= 2;
     }
     
-    while ip < length {
-        if op + 2 > maxout { return 0; }
-        output[op] = input[ip];
-        op += 1;
-        ip += 1;
+    let shift = length - maxlen;
+    let cratio = get_cratio(input, ibase + shift, maxlen, minlen, ipshift, &mut htab, hashlog);
+    
+    let cratio_arr = [0.0, 2.0, 1.5, 1.2, 1.2, 1.2, 1.2, 1.15, 1.1, 1.0];
+    if cratio < cratio_arr[clevel as usize] {
+        return 0;
+    }
+    
+    let mut ip = ibase;
+    let ip_bound = ibase + length - 1;
+    let ip_limit = ibase + length - 12;
+    let mut op = 0;
+    let op_limit = maxout;
+    
+    if length < 16 || maxout < 66 {
+        return 0;
+    }
+    
+    htab.fill(0);
+    
+    let mut copy = 4;
+    output[op] = (MAX_COPY - 1) as u8; op += 1;
+    output[op] = input[ip]; op += 1; ip += 1;
+    output[op] = input[ip]; op += 1; ip += 1;
+    output[op] = input[ip]; op += 1; ip += 1;
+    output[op] = input[ip]; op += 1; ip += 1;
+    
+    while ip < ip_limit {
+        let mut anchor = ip;
+        let seq = u32::from_ne_bytes(input[ip..ip+4].try_into().unwrap());
+        let hval = hash_function(seq, hashlog);
+        let mut ref_pos = ibase + htab[hval] as usize;
+        
+        let mut distance = anchor - ref_pos;
+        htab[hval] = (anchor - ibase) as u32;
+        
+        if distance == 0 || distance >= MAX_FARDISTANCE {
+            // LITERAL
+            if op + 2 > op_limit { return 0; }
+            output[op] = input[anchor]; op += 1; anchor += 1;
+            ip = anchor;
+            copy += 1;
+            if copy == MAX_COPY {
+                copy = 0;
+                output[op] = (MAX_COPY - 1) as u8; op += 1;
+            }
+            continue;
+        }
+        
+        if u32::from_ne_bytes(input[ref_pos..ref_pos+4].try_into().unwrap()) == u32::from_ne_bytes(input[ip..ip+4].try_into().unwrap()) {
+            ref_pos += 4;
+        } else {
+            // LITERAL
+            if op + 2 > op_limit { return 0; }
+            output[op] = input[anchor]; op += 1; anchor += 1;
+            ip = anchor;
+            copy += 1;
+            if copy == MAX_COPY {
+                copy = 0;
+                output[op] = (MAX_COPY - 1) as u8; op += 1;
+            }
+            continue;
+        }
+        
+        ip = anchor + 4;
+        distance -= 1;
+        
+        ip = get_run_or_match(input, ip, ip_bound, ref_pos, distance == 0);
+        
+        ip -= ipshift;
+        let len = ip - anchor;
+        
+        if len < minlen || (len <= 5 && distance >= MAX_DISTANCE) {
+            // LITERAL
+            if op + 2 > op_limit { return 0; }
+            output[op] = input[anchor]; op += 1; anchor += 1;
+            ip = anchor;
+            copy += 1;
+            if copy == MAX_COPY {
+                copy = 0;
+                output[op] = (MAX_COPY - 1) as u8; op += 1;
+            }
+            continue;
+        }
+        
+        if copy != 0 {
+            output[op - copy - 1] = (copy - 1) as u8;
+        } else {
+            op -= 1;
+        }
+        copy = 0;
+        
+        if distance < MAX_DISTANCE {
+            if len < 7 {
+                // MATCH_SHORT
+                if op + 2 > op_limit { return 0; }
+                output[op] = ((len << 5) + (distance >> 8)) as u8; op += 1;
+                output[op] = (distance & 255) as u8; op += 1;
+            } else {
+                // MATCH_LONG
+                if op + 1 > op_limit { return 0; }
+                output[op] = ((7 << 5) + (distance >> 8)) as u8; op += 1;
+                let mut l = len - 7;
+                while l >= 255 {
+                    if op + 1 > op_limit { return 0; }
+                    output[op] = 255; op += 1;
+                    l -= 255;
+                }
+                if op + 2 > op_limit { return 0; }
+                output[op] = l as u8; op += 1;
+                output[op] = (distance & 255) as u8; op += 1;
+            }
+        } else {
+            distance -= MAX_DISTANCE;
+            if len < 7 {
+                // MATCH_SHORT_FAR
+                if op + 4 > op_limit { return 0; }
+                output[op] = ((len << 5) + 31) as u8; op += 1;
+                output[op] = 255; op += 1;
+                output[op] = (distance >> 8) as u8; op += 1;
+                output[op] = (distance & 255) as u8; op += 1;
+            } else {
+                // MATCH_LONG_FAR
+                if op + 1 > op_limit { return 0; }
+                output[op] = ((7 << 5) + 31) as u8; op += 1;
+                let mut l = len - 7;
+                while l >= 255 {
+                    if op + 1 > op_limit { return 0; }
+                    output[op] = 255; op += 1;
+                    l -= 255;
+                }
+                if op + 4 > op_limit { return 0; }
+                output[op] = l as u8; op += 1;
+                output[op] = 255; op += 1;
+                output[op] = (distance >> 8) as u8; op += 1;
+                output[op] = (distance & 255) as u8; op += 1;
+            }
+        }
+        
+        let seq = u32::from_ne_bytes(input[ip..ip+4].try_into().unwrap());
+        let hval = hash_function(seq, hashlog);
+        htab[hval] = (ip - ibase) as u32;
+        
+        if clevel == 9 {
+            let seq2 = seq >> 8;
+            let hval2 = hash_function(seq2, hashlog);
+            htab[hval2] = (ip + 1 - ibase) as u32;
+            ip += 1;
+        } else {
+            ip += 1;
+        }
+        
+        if op + 1 > op_limit { return 0; }
+        output[op] = (MAX_COPY - 1) as u8; op += 1;
+    }
+    
+    while ip <= ip_bound {
+        if op + 2 > op_limit { return 0; }
+        output[op] = input[ip]; op += 1; ip += 1;
         copy += 1;
         if copy == MAX_COPY {
             copy = 0;
-            output[op] = (MAX_COPY - 1) as u8;
-            op += 1;
+            output[op] = (MAX_COPY - 1) as u8; op += 1;
         }
     }
     
@@ -977,21 +382,49 @@ pub fn blosclz_compress(
         op -= 1;
     }
     
+    output[0] |= 1 << 5;
+    
     op as i32
+}
+
+// LZ4 wildCopy which can reach excellent copy bandwidth (even if insecure)
+#[inline]
+fn wild_copy(output: &mut [u8], mut op: usize, mut ref_pos: usize, end: usize) {
+    while op < end {
+        if op >= ref_pos + 8 {
+             output.copy_within(ref_pos..ref_pos+8, op);
+        } else {
+             for i in 0..8 {
+                 output[op + i] = output[ref_pos + i];
+             }
+        }
+        op += 8;
+        ref_pos += 8;
+    }
+}
+
+#[inline]
+fn copy_match(output: &mut [u8], mut op: usize, mut ref_pos: usize, len: usize) -> usize {
+    for _ in 0..len {
+        output[op] = output[ref_pos];
+        op += 1;
+        ref_pos += 1;
+    }
+    op
 }
 
 pub fn blosclz_decompress(
     input: &[u8],
+    length: usize,
     output: &mut [u8],
     maxout: usize,
 ) -> i32 {
-    let length = input.len();
-    if length == 0 { return 0; }
-    
     let mut ip = 0;
-    let mut op = 0;
     let ip_limit = length;
+    let mut op = 0;
     let op_limit = maxout;
+    
+    if length == 0 { return 0; }
     
     let mut ctrl = (input[ip] & 31) as u32;
     ip += 1;
@@ -1005,8 +438,7 @@ pub fn blosclz_decompress(
             if len == 6 {
                 loop {
                     if ip + 1 >= ip_limit { return 0; }
-                    code = input[ip];
-                    ip += 1;
+                    code = input[ip]; ip += 1;
                     len += code as i32;
                     if code != 255 { break; }
                 }
@@ -1014,19 +446,15 @@ pub fn blosclz_decompress(
                 if ip + 1 >= ip_limit { return 0; }
             }
             
-            code = input[ip];
-            ip += 1;
+            code = input[ip]; ip += 1;
             len += 3;
-            
             let mut ref_pos = (op as i32) - ofs - (code as i32);
             
             if code == 255 {
                 if ofs == (31 << 8) {
                     if ip + 1 >= ip_limit { return 0; }
-                    ofs = (input[ip] as i32) << 8;
-                    ip += 1;
-                    ofs += input[ip] as i32;
-                    ip += 1;
+                    ofs = (input[ip] as i32) << 8; ip += 1;
+                    ofs += input[ip] as i32; ip += 1;
                     ref_pos = (op as i32) - ofs - MAX_DISTANCE as i32;
                 }
             }
@@ -1034,19 +462,23 @@ pub fn blosclz_decompress(
             if op + (len as usize) > op_limit { return 0; }
             if ref_pos < 0 { return 0; }
             
-            let len = len as usize;
-            let ref_pos = ref_pos as usize;
-            
-            if ref_pos >= op { return 0; }
-            
-            for i in 0..len {
-                output[op + i] = output[ref_pos + i];
-            }
-            op += len;
-            
             if ip >= ip_limit { break; }
-            ctrl = input[ip] as u32;
-            ip += 1;
+            ctrl = input[ip] as u32; ip += 1;
+            
+            let ref_ptr = ref_pos as usize;
+            let len = len as usize;
+            
+            if ref_ptr == op - 1 {
+                // optimized copy for a run
+                let val = output[ref_ptr];
+                output[op..op+len].fill(val);
+                op += len;
+            } else if (op - ref_ptr >= 8) && (op_limit - op >= len + 8) {
+                wild_copy(output, op, ref_ptr, op + len);
+                op += len;
+            } else {
+                op = copy_match(output, op, ref_ptr, len);
+            }
         } else {
             ctrl += 1;
             let len = ctrl as usize;
@@ -1058,8 +490,7 @@ pub fn blosclz_decompress(
             ip += len;
             
             if ip >= ip_limit { break; }
-            ctrl = input[ip] as u32;
-            ip += 1;
+            ctrl = input[ip] as u32; ip += 1;
         }
     }
     

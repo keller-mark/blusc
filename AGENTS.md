@@ -1,4 +1,4 @@
-When porting logic to rust, use the C implementations in comments at the end of each Rust source file.
+When porting logic to rust, use the C implementations in the `.c` files alongside the corresponding `.rs` files.
 
 ## Porting from C to Rust
 
