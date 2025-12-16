@@ -2,6 +2,9 @@
 
 use crate::include::b2nd_include::*;
 use crate::include::blosc2_include::*;
+use crate::blosc::schunk::*;
+use crate::blosc::blosc2::{blosc2_compress_ctx, blosc2_chunk_repeatval, Blosc2Cparams, Blosc2Dparams};
+use crate::blosc::context::{Blosc2Schunk, Blosc2Storage, Blosc2Metalayer, Blosc2Context};
 
 /// An optional cache for a single chunk.
 ///
@@ -85,40 +88,6 @@ pub struct B2ndArray {
     pub dtype_format: i8,
 }
 
-// Placeholder type definitions for structures that will be implemented elsewhere
-#[repr(C)]
-pub struct Blosc2Schunk {
-    pub typesize: i32,
-    pub chunksize: i32,
-    pub nmetalayers: i32,
-    pub nchunks: i64,
-    pub storage: *mut Blosc2Storage,
-    pub cctx: *mut Blosc2Context,
-    pub dctx: *mut Blosc2Dctx,
-    pub current_nchunk: i64,
-    // Additional fields will be added as needed
-}
-
-#[repr(C)]
-pub struct Blosc2Storage {
-    pub cparams: *mut Blosc2Cparams,
-    pub dparams: *mut Blosc2Dparams,
-    pub contiguous: bool,
-    pub urlpath: *const i8,
-    // Additional fields will be added as needed
-}
-
-#[repr(C)]
-pub struct Blosc2Metalayer {
-    pub name: *const i8,
-    pub content: *const u8,
-    pub content_len: i32,
-}
-
-#[repr(C)]
-pub struct Blosc2Dparams {
-    _placeholder: u8,
-}
 
 // NOTE: All functions below assume that the corresponding blosc2_* functions
 // (like blosc2_schunk_new, blosc2_compress_ctx, etc.) are available and will be
@@ -259,21 +228,6 @@ pub fn update_shape(
     }
 }
 
-// Placeholder types for blosc2 structures
-#[repr(C)]
-pub struct Blosc2Cparams {
-    // TODO
-}
-
-#[repr(C)]
-pub struct Blosc2Dctx {
-    // TODO
-}
-
-#[repr(C)]
-pub struct Blosc2Context {
-    // TODO
-}
 
 // Constants from blosc2.h (these will be properly defined in blosc2_include.rs)
 const BLOSC2_SPECIAL_UNINIT: i32 = 0;
@@ -357,7 +311,7 @@ fn array_new(ctx: *mut B2ndContext, special_value: i32, array: *mut *mut B2ndArr
         (*sc).chunksize = chunksize;
         
         // Serialize the dimension info
-        if (*sc).nmetalayers >= BLOSC2_MAX_METALAYERS as i32 {
+        if (*sc).nmetalayers as i32 >= BLOSC2_MAX_METALAYERS as i32 {
             eprintln!("the number of metalayers for this schunk has been exceeded");
             blosc2_schunk_free(sc);
             b2nd_free(*array);
@@ -417,10 +371,10 @@ fn array_new(ctx: *mut B2ndContext, special_value: i32, array: *mut *mut B2ndArr
             let nchunks = (**array).extnitems / (**array).chunknitems as i64;
             let nitems = nchunks * (**array).extchunknitems;
             let result = blosc2_schunk_fill_special(sc, nitems, special_value, chunksize);
-            if result != BLOSC2_ERROR_SUCCESS {
+            if result != BLOSC2_ERROR_SUCCESS as i64 {
                 blosc2_schunk_free(sc);
                 b2nd_free(*array);
-                return result;
+                return result as i32;
             }
         }
         
@@ -524,7 +478,7 @@ pub fn b2nd_full(ctx: *mut B2ndContext, array: *mut *mut B2ndArray, fill_value: 
             return BLOSC2_ERROR_MEMORY_ALLOC;
         }
         
-        if blosc2_chunk_repeatval(cparams, chunkbytes, chunk, chunksize, fill_value) < 0 {
+        if blosc2_chunk_repeatval(*cparams, chunkbytes, chunk as *mut std::ffi::c_void, chunksize, fill_value as *const std::ffi::c_void) < 0 {
             std::alloc::dealloc(chunk, chunk_layout);
             b2nd_free(*array);
             return BLOSC2_ERROR_FAILURE;
@@ -888,12 +842,12 @@ pub fn b2nd_get_slice_nchunks(
         
         for update_nchunk in 0..update_nchunks {
             let mut nchunk_ndim = [0i64; B2ND_MAX_DIM];
-            blosc2_unidim_to_multidim(ndim, update_shape.as_ptr(), update_nchunk, nchunk_ndim.as_mut_ptr());
+            blosc2_unidim_to_multidim(ndim as usize, &update_shape[..ndim as usize], update_nchunk, &mut nchunk_ndim[..ndim as usize]);
             for i in 0..ndim as usize {
                 nchunk_ndim[i] += update_start[i];
             }
             let mut nchunk = 0i64;
-            blosc2_multidim_to_unidim(nchunk_ndim.as_ptr(), ndim, chunks_in_array_strides.as_ptr(), &mut nchunk);
+            nchunk = blosc2_multidim_to_unidim(&nchunk_ndim[..ndim as usize], ndim, &chunks_in_array_strides[..ndim as usize]);
             
             // Check if the chunk is inside the slice domain
             let mut chunk_start = [0i64; B2ND_MAX_DIM];
@@ -1026,7 +980,7 @@ fn get_set_slice(
                 if chunk.is_null() {
                     return BLOSC2_ERROR_MEMORY_ALLOC;
                 }
-                if blosc2_compress_ctx((*(*array).sc).cctx, buffer_b, (*(*array).sc).typesize, chunk, chunk_size) < 0 {
+                if blosc2_compress_ctx((*(*array).sc).cctx, buffer_b as *const std::ffi::c_void, (*(*array).sc).typesize, chunk as *mut std::ffi::c_void, chunk_size) < 0 {
                     std::alloc::dealloc(chunk, layout);
                     return BLOSC2_ERROR_FAILURE;
                 }
@@ -1075,7 +1029,7 @@ fn get_set_slice(
                 }
                 // Update current_chunk in case a prefilter is applied
                 (*(*array).sc).current_nchunk = nchunk;
-                let brc = blosc2_compress_ctx((*(*array).sc).cctx, buffer, data_nbytes, chunk, chunk_nbytes);
+                let brc = blosc2_compress_ctx((*(*array).sc).cctx, buffer as *const std::ffi::c_void, data_nbytes, chunk as *mut std::ffi::c_void, chunk_nbytes);
                 if brc < 0 {
                     eprintln!("Blosc can not compress the data");
                     std::alloc::dealloc(chunk, layout);

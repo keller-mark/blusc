@@ -116,7 +116,7 @@ pub fn from_big(dest: &mut [u8], src: &[u8], itemsize: usize) {
 }
 
 /* Copy 4 bytes from @p *pa to int32_t, changing endianness if necessary. */
-fn sw32_(pa: &[u8]) -> i32 {
+pub fn sw32_(pa: &[u8]) -> i32 {
     // int32_t idest;
     // bool little_endian = is_little_endian();
     let little_endian = is_little_endian();

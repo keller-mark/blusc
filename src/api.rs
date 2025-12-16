@@ -70,7 +70,15 @@ pub fn blosc2_compress_ctx(
     src: &[u8],
     dest: &mut [u8],
 ) -> i32 {
-    crate::blosc::blosc2::blosc2_compress_ctx(context, src, dest)
+    unsafe {
+        crate::blosc::blosc2::blosc2_compress_ctx(
+            context,
+            src.as_ptr() as *const std::ffi::c_void,
+            src.len() as i32,
+            dest.as_mut_ptr() as *mut std::ffi::c_void,
+            dest.len() as i32,
+        )
+    }
 }
 
 pub fn blosc2_cbuffer_sizes(
@@ -88,6 +96,14 @@ pub fn blosc2_decompress_ctx(
     src: &[u8],
     dest: &mut [u8],
 ) -> i32 {
-    crate::blosc::blosc2::blosc2_decompress_ctx(context, src, dest)
+    unsafe {
+        crate::blosc::blosc2::blosc2_decompress_ctx(
+            context as *const _ as *mut _,
+            src.as_ptr() as *const std::ffi::c_void,
+            src.len() as i32,
+            dest.as_mut_ptr() as *mut std::ffi::c_void,
+            dest.len() as i32,
+        )
+    }
 }
 

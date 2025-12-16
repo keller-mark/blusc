@@ -1,7 +1,10 @@
 use crate::include::blosc2_include::*;
-use crate::blosc::blosc_private::is_little_endian;
-use crate::blosc::context::{Blosc2Context, Blosc2Filter, BLOSC2_MAX_UDFILTERS};
+use crate::blosc::blosc_private::{is_little_endian, sw32_};
+use crate::blosc::context::{Blosc2Context, Blosc2Filter, BLOSC2_MAX_UDFILTERS, ThreadContext};
 use std::ptr;
+use std::ffi::c_void;
+use std::slice;
+use std::alloc::{alloc, dealloc, Layout};
 
 // Use constants from include, cast to usize for array sizes
 const MAX_FILTERS: usize = BLOSC2_MAX_FILTERS as usize;
@@ -194,7 +197,9 @@ pub fn blosc2_compress(
     }
     
     let mut ctx = blosc2_create_cctx(cparams);
-    blosc2_compress_ctx(&mut ctx, src, dest)
+    unsafe {
+        blosc2_compress_ctx(&mut ctx, src.as_ptr() as *const c_void, src.len() as i32, dest.as_mut_ptr() as *mut c_void, dest.len() as i32)
+    }
 }
 
 pub fn blosc2_decompress(
@@ -202,8 +207,10 @@ pub fn blosc2_decompress(
     dest: &mut [u8],
 ) -> i32 {
     let dparams = BLOSC2_DPARAMS_DEFAULTS;
-    let ctx = blosc2_create_dctx(dparams);
-    blosc2_decompress_ctx(&ctx, src, dest)
+    let mut ctx = blosc2_create_dctx(dparams);
+    unsafe {
+        blosc2_decompress_ctx(&mut ctx, src.as_ptr() as *const c_void, src.len() as i32, dest.as_mut_ptr() as *mut c_void, dest.len() as i32)
+    }
 }
 
 pub fn blosc2_create_cctx(cparams: Blosc2Cparams) -> Blosc2Context {
@@ -261,20 +268,25 @@ pub fn blosc2_create_cctx(cparams: Blosc2Cparams) -> Blosc2Context {
     }
 }
 
-pub fn blosc2_compress_ctx(
-    context: &mut Blosc2Context,
-    src: &[u8],
-    dest: &mut [u8],
+#[no_mangle]
+pub unsafe extern "C" fn blosc2_compress_ctx(
+    context: *mut Blosc2Context,
+    src: *const c_void,
+    srcsize: i32,
+    dest: *mut c_void,
+    destsize: i32,
 ) -> i32 {
-    context.src = src.as_ptr();
-    context.srcsize = src.len() as i32;
-    context.dest = dest.as_mut_ptr();
-    context.destsize = dest.len() as i32;
+    let context = &mut *context;
+    context.src = src as *const u8;
+    context.srcsize = srcsize;
+    context.dest = dest as *mut u8;
+    context.destsize = destsize;
     
     if context.clevel == 0 {
         // Memcpy
         let header_len = BLOSC_EXTENDED_HEADER_LENGTH as usize;
         if (context.destsize as usize) < context.srcsize as usize + header_len {
+            println!("Buffer too small: destsize={}, srcsize={}, header_len={}", context.destsize, context.srcsize, header_len);
             return BLOSC2_ERROR_WRITE_BUFFER;
         }
         
@@ -298,19 +310,27 @@ pub fn blosc2_compress_ctx(
         header[12..16].copy_from_slice(&cbytes_bytes);
         
         // Copy header to dest
-        unsafe {
-            ptr::copy_nonoverlapping(header.as_ptr(), context.dest, header_len);
-        }
+        ptr::copy_nonoverlapping(header.as_ptr(), context.dest, header_len);
         
         // Copy data
-        unsafe {
-            ptr::copy_nonoverlapping(context.src, context.dest.add(header_len), context.srcsize as usize);
-        }
+        ptr::copy_nonoverlapping(context.src, context.dest.add(header_len), context.srcsize as usize);
         
         return cbytes;
     }
     
     // TODO: Implement compression for clevel > 0
+    0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn blosc2_chunk_repeatval(
+    _cparams: Blosc2Cparams,
+    _nbytes: i32,
+    _dest: *mut c_void,
+    _destsize: i32,
+    _repeatval: *const c_void,
+) -> i32 {
+    // TODO: Implement
     0
 }
 
@@ -370,11 +390,41 @@ pub fn blosc2_create_dctx(dparams: Blosc2Dparams) -> Blosc2Context {
     }
 }
 
-pub fn blosc2_decompress_ctx(
-    _context: &Blosc2Context,
-    _src: &[u8],
-    _dest: &mut [u8],
+#[no_mangle]
+pub unsafe extern "C" fn blosc2_decompress_ctx(
+    _context: *mut Blosc2Context,
+    _src: *const c_void,
+    _srcsize: i32,
+    _dest: *mut c_void,
+    _destsize: i32,
 ) -> i32 {
+    let context = &mut *_context;
+    context.src = _src as *const u8;
+    context.srcsize = _srcsize;
+    context.dest = _dest as *mut u8;
+    context.destsize = _destsize;
+
+    let header_len = BLOSC_EXTENDED_HEADER_LENGTH as usize;
+    if (context.srcsize as usize) < header_len {
+        return BLOSC2_ERROR_READ_BUFFER;
+    }
+
+    let src_slice = std::slice::from_raw_parts(context.src, header_len);
+    let flags = src_slice[2];
+    
+    if (flags & BLOSC_MEMCPYED) != 0 {
+        let mut nbytes_bytes = [0u8; 4];
+        nbytes_bytes.copy_from_slice(&src_slice[4..8]);
+        let nbytes = i32::from_le_bytes(nbytes_bytes);
+        
+        if (context.destsize as i32) < nbytes {
+             return BLOSC2_ERROR_WRITE_BUFFER;
+        }
+        
+        ptr::copy_nonoverlapping(context.src.add(header_len), context.dest, nbytes as usize);
+        return nbytes;
+    }
+
     // TODO: Implement
     0
 }

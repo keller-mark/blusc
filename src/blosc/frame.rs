@@ -301,7 +301,15 @@ pub fn frame_decompress_chunk(
     //         rc = BLOSC2_ERROR_FAILURE;
     // }
     dctx.header_overhead = BLOSC_EXTENDED_HEADER_LENGTH as i32;
-    let chunksize = blosc2_decompress_ctx(dctx, &src, dest);
+    let chunksize = unsafe {
+        blosc2_decompress_ctx(
+            dctx,
+            src.as_ptr() as *const std::ffi::c_void,
+            chunk_cbytes as i32,
+            dest.as_mut_ptr() as *mut std::ffi::c_void,
+            nbytes,
+        )
+    };
     
     let rc = if chunksize < 0 || chunksize as usize != chunk_nbytes {
         // BLOSC_TRACE_ERROR("Error in decompressing chunk.");

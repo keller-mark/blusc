@@ -180,17 +180,45 @@ pub struct Blosc2PostfilterParams {
 
 #[repr(C)]
 pub struct Blosc2Schunk {
-    _placeholder: u8,
+    pub version: u8,
+    pub compcode: u8,
+    pub compcode_meta: u8,
+    pub clevel: u8,
+    pub splitmode: i32,
+    pub typesize: i32,
+    pub blocksize: i32,
+    pub chunksize: i32,
+    pub filters: [u8; BLOSC2_MAX_FILTERS],
+    pub filters_meta: [u8; BLOSC2_MAX_FILTERS],
+    pub nchunks: i64,
+    pub nmetalayers: i16,
+    pub metalayers: [*mut Blosc2Metalayer; B2ND_MAX_METALAYERS],
+    pub nvlmetalayers: i16,
+    pub vlmetalayers: [*mut Blosc2Metalayer; B2ND_MAX_METALAYERS],
+    pub storage: *mut Blosc2Storage,
+    pub cctx: *mut Blosc2Context,
+    pub dctx: *mut Blosc2Context,
+    pub frame: *mut std::ffi::c_void,
+    pub tuner_params: *mut u8,
+    pub tuner_id: i32,
+    pub view: bool,
+    pub current_nchunk: i64,
 }
 
 #[repr(C)]
 pub struct Blosc2Storage {
-    _placeholder: u8,
+    pub contiguous: bool,
+    pub urlpath: *mut i8,
+    pub cparams: *mut crate::blosc::blosc2::Blosc2Cparams,
+    pub dparams: *mut crate::blosc::blosc2::Blosc2Dparams,
+    pub io: *mut std::ffi::c_void,
 }
 
 #[repr(C)]
 pub struct Blosc2Metalayer {
-    _placeholder: u8,
+    pub name: *mut i8,
+    pub content: *mut u8,
+    pub content_len: i32,
 }
 
 // Constants from blosc2.h (will be properly defined in blosc2_include.rs)
