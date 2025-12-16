@@ -279,10 +279,7 @@ pub fn frame_decompress_chunk(
     // if (rc < 0) {
     //     goto end;
     // }
-    let (chunk_nbytes, chunk_cbytes) = match blosc2_cbuffer_sizes(&src) {
-        Ok((nbytes, cbytes, _)) => (nbytes, cbytes),
-        Err(rc) => return rc,
-    };
+    let (chunk_nbytes, chunk_cbytes, _) = blosc2_cbuffer_sizes(&src);
 
     // /* Create a buffer for destination */
     // if (chunk_nbytes > nbytes) {
@@ -290,7 +287,7 @@ pub fn frame_decompress_chunk(
     //     rc = BLOSC2_ERROR_WRITE_BUFFER;
     //     goto end;
     // }
-    if chunk_nbytes > nbytes {
+    if chunk_nbytes > nbytes as usize {
         // BLOSC_TRACE_ERROR("Not enough space for decompressing in dest.");
         return BLOSC2_ERROR_WRITE_BUFFER;
     }
@@ -304,9 +301,9 @@ pub fn frame_decompress_chunk(
     //         rc = BLOSC2_ERROR_FAILURE;
     // }
     dctx.header_overhead = BLOSC_EXTENDED_HEADER_LENGTH as i32;
-    let chunksize = blosc2_decompress_ctx(dctx, &src, chunk_cbytes, dest, nbytes);
+    let chunksize = blosc2_decompress_ctx(dctx, &src, dest);
     
-    let rc = if chunksize < 0 || chunksize != chunk_nbytes {
+    let rc = if chunksize < 0 || chunksize as usize != chunk_nbytes {
         // BLOSC_TRACE_ERROR("Error in decompressing chunk.");
         if chunksize >= 0 {
             BLOSC2_ERROR_FAILURE

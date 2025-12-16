@@ -43,11 +43,11 @@ pub fn b2nd_copy_buffer2(
     }
 
     // Align the buffers removing unnecessary data
-    let src_start_n = blosc2_multidim_to_unidim(src_start, ndim, &src_strides);
+    let src_start_n = blosc2_multidim_to_unidim(src_start, ndim as i8, &src_strides);
     let src_offset = (src_start_n * itemsize as i64) as usize;
     let bsrc = &src[src_offset..];
 
-    let dst_start_n = blosc2_multidim_to_unidim(dst_start, ndim, &dst_strides);
+    let dst_start_n = blosc2_multidim_to_unidim(dst_start, ndim as i8, &dst_strides);
     let dst_offset = (dst_start_n * itemsize as i64) as usize;
     let bdst = &mut dst[dst_offset..];
 
@@ -71,10 +71,10 @@ pub fn b2nd_copy_buffer2(
         blosc2_unidim_to_multidim(ndim - 1, &copy_shape, ncopy, &mut copy_start);
 
         // Translate this index to the src buffer
-        let src_copy_start = blosc2_multidim_to_unidim(&copy_start, ndim - 1, &src_strides);
+        let src_copy_start = blosc2_multidim_to_unidim(&copy_start, (ndim - 1) as i8, &src_strides);
 
         // Translate this index to the dst buffer
-        let dst_copy_start = blosc2_multidim_to_unidim(&copy_start, ndim - 1, &dst_strides);
+        let dst_copy_start = blosc2_multidim_to_unidim(&copy_start, (ndim - 1) as i8, &dst_strides);
 
         // Perform the copy
         let src_idx = (src_copy_start * itemsize as i64) as usize;
