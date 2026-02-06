@@ -54,3 +54,19 @@ For reference during development, this crate contains the C implementations in `
 -----
 
 Motivation: Why are all of our compression algorithms still bindings to C libraries?
+
+
+-----
+
+## Citing Blosc
+
+```bibtex
+@ONLINE{blosc,
+    author = {{Blosc Development Team}},
+    title = "{A fast, compressed and persistent data store library}",
+    year = {2009-2025},
+    note = {https://blosc.org}
+}
+```
+
+<!-- Copied from https://github.com/Blosc/c-blosc2/tree/main?tab=readme-ov-file#citing-blosc -->
