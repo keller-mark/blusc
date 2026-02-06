@@ -2,83 +2,79 @@
 
 ## Compression
 
-### Block Splitting
+The blosc2 compression pipeline works as follows:
 
-Reference: `c-blosc2/blosc/stune.c` lines 185-215
+1. **Block sizing** (`compute_blocksize` / C `blosc_stune_next_blocksize`):
+   - Determines blocksize based on clevel, typesize, nbytes, and compressor.
+   - Base is L1 cache size (32KB), scaled up by clevel.
+   - HCR codecs (LZ4HC, ZLIB, ZSTD) get 2x blocksize.
+   - When splitting is active (byte-shuffle + compatible codec), a separate blocksize
+     table is used (32KB-512KB * typesize, capped at 4MB).
 
-The `split_block()` function determines whether to split a block into multiple streams (one per typesize byte). Splitting is only done for:
-- Fast codecs: BLOSCLZ, LZ4, or ZSTD with clevel <= 5
-- When byte-shuffle (BLOSC_SHUFFLE) is enabled (NOT bitshuffle!)
-- When typesize <= MAX_STREAMS (16)
-- When blocksize / typesize >= BLOSC_MIN_BUFFERSIZE
+2. **Header creation**: 16-byte (blosc1) or 32-byte (blosc2 extended) header.
+   - Byte 0: version format
+   - Byte 1: compressor version
+   - Byte 2: flags (shuffle bits, memcpy bit, codec in bits 5-7)
+   - Byte 3: typesize
+   - Bytes 4-7: nbytes (uncompressed size, LE u32)
+   - Bytes 8-11: blocksize (LE u32)
+   - Bytes 12-15: cbytes (compressed size, LE u32)
+   - Extended header bytes 16-21: filter codes
+   - Byte 22: compressor code
+   - Bytes 24-29: filter metadata
 
-**Important**: Bitshuffle (BLOSC_BITSHUFFLE) does NOT enable block splitting. Only byte-shuffle does.
-- In `blusc`, ensuring `split_block` returns `false` for `BITSHUFFLE` improved compression from ~6200 bytes to ~3329 bytes in `test_roundtrip_large_bitshuffle`.
+3. **Split decision** (`split_block` / C `stune.c:split_block`):
+   - Only splits for byte-shuffle (BLOSC_DOSHUFFLE), NOT bitshuffle.
+   - Only for BLOSCLZ, LZ4, or ZSTD (clevel <= 5).
+   - typesize must be <= 16 (MAX_STREAMS).
+   - blocksize/typesize must be >= BLOSC_MIN_BUFFERSIZE (32).
 
-### BLOSClz Compression
+4. **Per-block processing**:
+   - Apply filter (shuffle or bitshuffle).
+   - If splitting: compress each typesize-stream separately.
+   - If not splitting: compress entire block as one stream.
+   - Each stream is preceded by a 4-byte LE u32 compressed size.
 
-Reference: `c-blosc2/blosc/blosclz.c` lines 422-650
+5. **Incompressible fallback**: If any stream fails to compress or total compressed
+   exceeds original, fall back to memcpy (BLOSC_MEMCPYED flag).
 
-The BLOSClz compressor uses several key optimizations:
+## Decompression
 
-1. **ipshift and minlen**: Set to 4 for optimal compression with bitshuffle and small typesizes
-   - `ipshift = 4`: Shifts back in the match by 4 bytes to find longer runs
-   - `minlen = 4`: Minimum match length to encode
+1. Parse header to get nbytes, cbytes, blocksize, flags, compressor, typesize.
+2. Detect extended header (both DOSHUFFLE and DOBITSHUFFLE flags set = extended marker).
+3. If MEMCPYED flag: direct copy from after header.
+4. Otherwise: read bstarts array, decompress each block's streams, apply inverse filter.
 
-2. **Match Finding**: Uses hash table to find potential matches
-   - Hash function: `(seq * 2654435761) >> (32 - hashlog)`
-   - Matches must be at least 4 bytes initially
-   - **Level 9 Optimization**: For `clevel=9`, a second hash update is performed at the match boundary using `seq >> 8`. This helps find more matches in highly compressible data.
+## BloscLZ Codec
 
-3. **Match Length Calculation**:
-   - C: `ip = get_run_or_match(ip, ip_bound, ref, !distance)` returns pointer AFTER last match byte
-   - C: `ip -= ipshift` to bias the position
-   - C: `len = ip - anchor` gives biased match length
+Reference: `c-blosc2/blosc/blosclz.c`
 
-4. **Match Acceptance Criteria**:
-   - Reject if `len < minlen` OR (`len <= 5` AND `distance >= MAX_DISTANCE`)
-   - Accept if `len >= minlen` AND (`len > 5` OR `distance < MAX_DISTANCE`)
+BloscLZ is based on FastLZ. Key implementation details:
 
-### Bitshuffle Filter
+### Compression (`blosclz_compress`, line ~430)
+- Uses ipshift=4, minlen=4 (constant for all clevels).
+- Hash table size: `1 << hashlog` where hashlog depends on clevel
+  (0 for clevel 0, HASH_LOG-2 for 1, HASH_LOG-1 for 2, HASH_LOG for 3+).
+- **Entropy probing** (line ~455): estimates compression ratio by running a simulated
+  compression on a portion of the buffer. Bails early if ratio is too low.
+  Probe length: length/8 (clevel<2), length/4 (clevel<4), length/2 (clevel<7), full (clevel>=7).
+  Threshold table: [0, 2, 1.5, 1.2, 1.2, 1.2, 1.2, 1.15, 1.1, 1.0].
+- Hash table is re-initialized to 0 after entropy probing (line ~485).
+- Match detection: first 4 bytes checked, then `get_run_or_match` extends.
+- `get_match` returns one-past-end (C post-increment semantics) -> encoded len = ip - anchor.
+- `get_run` (for repeated bytes, distance==0 after decrement) does NOT post-increment.
+- Encoded match length is biased: decompressor adds 3 to recover actual length.
+- After encoding, hash is updated at match boundary position, then ip advances by 2.
+- At clevel 9, a second hash entry is stored (shifted by 1 byte).
 
-The `bitshuffle` implementation in `blusc` is currently monolithic (processes the entire buffer at once).
-- `c-blosc2` uses a blocked implementation (typically 8KB blocks) for bitshuffle.
-- Attempting to implement 8KB blocking in `blusc` (without other changes) resulted in significantly worse compression (~17KB), likely due to boundary effects or incorrect implementation details.
-- The current monolithic implementation + `split_block=false` yields ~3329 bytes for the large bitshuffle test.
-- The target (C-Blosc2) is ~2188 bytes.
-- The remaining discrepancy (~1100 bytes) suggests that the specific data pattern produced by C-Blosc2's blocked bitshuffle is slightly more compressible by `blosclz` than the monolithic output, OR there are subtle differences in how `blosclz` handles the specific patterns generated.
+### Decompression (`blosclz_decompress`, line ~550)
+- ctrl byte: if >= 32 -> match, else -> literal copy.
+- Match: len = (ctrl >> 5) - 1, with extension for len==6. Then len += 3.
+- Far distance (code==255, ofs==31*256): 16-bit distance encoding.
+- Optimized copy for runs (distance==1) using memset.
 
-### Compression Ratio Mismatch
-
-- `test_roundtrip_csv_case`: `blusc` (3064) is smaller than `bound` (4444). `blusc` is better.
-- `test_roundtrip_large_bitshuffle`: `blusc` (3329) is larger than `bound` (2188). `blusc` is approaching the target but still ~50% larger.
-
-### C-Blosc2 Bitshuffle Implementation Details
-
-Based on analysis of `c-blosc2` source code (specifically `blosc/blosc2.c`, `blosc/stune.c`, and `blosc/bitshuffle-avx2.c`):
-
-1.  **Blosc Block Splitting**:
-    - `blosc` splits the input buffer into blocks. The block size is determined by `blosc_stune_next_blocksize` (or `compute_blocksize` in Blosc 1.x).
-    - The default block size logic relies on `L1` cache size (defined as 32KB in `stune.h`).
-    - For `clevel=1`, block size is `L1 / 2` = 16KB.
-    - For `clevel=0` (memcpy), block size is `L1 / 4` = 8KB.
-    - For `clevel>=2`, block size is `L1` (32KB) or larger (up to 256KB for `clevel=9`).
-    - **Note**: I did not find explicit logic that forces 8KB blocks specifically for `BLOSC_BITSHUFFLE` in `c-blosc2`. If 8KB blocking is observed, it might be due to specific configuration or `clevel`.
-
-2.  **Bitshuffle Application**:
-    - Bitshuffle is applied as a filter in `pipeline_forward` (in `blosc2.c`).
-    - It operates on the **entire blosc block** (`bsize`).
-    - `pipeline_forward` calls `blosc2_bitshuffle`, which dispatches to the hardware-accelerated implementation (e.g., `bshuf_trans_bit_elem_AVX`).
-
-3.  **Bitshuffle Internal Logic**:
-    - The AVX2 implementation (`bshuf_trans_bit_elem_AVX` in `bitshuffle-avx2.c`) allocates a temporary buffer of size `size * elem_size` (which matches the blosc block size).
-    - It performs three passes:
-        1.  `bshuf_trans_byte_elem_sse2`: Transposes bytes within elements.
-        2.  `bshuf_trans_bit_byte_AVX`: Transposes bits within bytes (using 32-byte AVX registers).
-        3.  `bshuf_trans_bitrow_eight`: Transposes bit rows.
-    - **Blocking**: The implementation does *not* appear to have an internal blocking loop (e.g., processing 8KB chunks) within these functions. It processes the full buffer passed to it.
-    - Therefore, the "blocking" behavior is primarily controlled by the **blosc block size**.
-
-4.  **Implication for Rust Port**:
-    - To match `c-blosc2` behavior, `blusc` should ensure that the bitshuffle filter is applied to the whole block *before* any potential stream splitting (though bitshuffle usually disables stream splitting in `blosc`).
-    - If `c-blosc2` is achieving better compression with what looks like "8KB blocking", it might be that `c-blosc2` is choosing a smaller block size (e.g. 16KB or 32KB) than `blusc` is currently using, or `blusc`'s bitshuffle implementation has subtle differences in the bit manipulation order compared to `c-blosc2`.
+### Critical C implementation detail: `get_match` post-increment
+The C `get_match` function (line ~149) uses `while (*ref++ == *ip++) {}`.
+The post-increment means ip advances one extra byte on mismatch but NOT when
+hitting ip_bound. In the 8-byte fast path (non-STRICT_ALIGN), the inner byte-by-byte
+fallback has no ip_bound check, so it always post-increments on mismatch.
