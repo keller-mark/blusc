@@ -1,7 +1,7 @@
 # blusc
 
 
-This is an attempt at a pure Rust implementation of Blosc compression and decompression.
+This is an attempt at a pure Rust implementation of [Blosc](https://github.com/Blosc/c-blosc2) compression and decompression.
 
 
 🚧 work in progress 🚧
@@ -55,8 +55,6 @@ cargo test -- --test-threads=1 --nocapture
 For reference during development, this crate contains the C implementations in `c-blosc` and `c-blosc2` directories as git submodules.
 
 
-
------
 
 ## Citing Blosc
 
