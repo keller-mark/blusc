@@ -21,6 +21,9 @@ Be sure to run unit tests in single-threaded mode.
 cargo test -- --test-threads=1
 ```
 
+ALWAYS RUN ALL TESTS TO PREVENT REGRESSIONS. DO NOT FILTER TO INDIVIDUAL TESTS.
+
+
 ## Debugging
 
 Debug by printing and comparing the return values from blosc2_src (correct) and blusc (incorrect, needs fixing) crates.

@@ -2,7 +2,6 @@ use crate::internal;
 use crate::internal::constants::*;
 use std::os::raw::c_void;
 
-
 #[repr(C)]
 pub struct Blosc2Context {
     pub cparams: Blosc2Cparams,
@@ -72,60 +71,51 @@ pub const BLOSC2_DPARAMS_DEFAULTS: Blosc2Dparams = Blosc2Dparams {
     postparams: std::ptr::null_mut(),
 };
 
-
 // Function signatures
-pub fn blosc1_cbuffer_metainfo(
-    cbuffer: &[u8],
-) -> Option<(usize, i32)> {
-    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH { return None; }
+pub fn blosc1_cbuffer_metainfo(cbuffer: &[u8]) -> Option<(usize, i32)> {
+    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH {
+        return None;
+    }
     let ts = cbuffer[3] as usize;
     let fl = cbuffer[2] as i32;
-    
+
     Some((ts, fl))
 }
 
-pub fn blosc1_cbuffer_validate(
-    cbuffer: &[u8],
-    cbytes: usize,
-) -> Result<usize, ()> {
-    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH { return Err(()); }
-    
+pub fn blosc1_cbuffer_validate(cbuffer: &[u8], cbytes: usize) -> Result<usize, ()> {
+    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH {
+        return Err(());
+    }
+
     let cb = u32::from_le_bytes([cbuffer[12], cbuffer[13], cbuffer[14], cbuffer[15]]) as usize;
-    if cbytes != cb { return Err(()); }
-    
+    if cbytes != cb {
+        return Err(());
+    }
+
     let nb = u32::from_le_bytes([cbuffer[4], cbuffer[5], cbuffer[6], cbuffer[7]]) as usize;
     Ok(nb)
 }
 
-pub fn blosc1_cbuffer_sizes(
-    cbuffer: &[u8],
-) -> (usize, usize, usize) {
+pub fn blosc1_cbuffer_sizes(cbuffer: &[u8]) -> (usize, usize, usize) {
     blosc2_cbuffer_sizes(cbuffer)
 }
 
-pub fn blosc1_getitem(
-    cbuffer: &[u8],
-    start: i32,
-    nitems: i32,
-    dest: &mut [u8],
-) -> i32 {
+pub fn blosc1_getitem(cbuffer: &[u8], start: i32, nitems: i32, dest: &mut [u8]) -> i32 {
     let cbytes = u32::from_le_bytes([cbuffer[12], cbuffer[13], cbuffer[14], cbuffer[15]]) as usize;
-    
+
     let src_slice = if cbuffer.len() >= cbytes {
         &cbuffer[..cbytes]
     } else {
         cbuffer
     };
-    
+
     match internal::getitem(src_slice, start as usize, nitems as usize, dest) {
         Ok(size) => size as i32,
         Err(_) => 0,
     }
 }
 
-pub fn blosc2_get_complib_info(
-    compcode: &str,
-) -> Option<(&'static str, &'static str, i32)> {
+pub fn blosc2_get_complib_info(compcode: &str) -> Option<(&'static str, &'static str, i32)> {
     // TODO: use constants
     match compcode {
         "blosclz" => Some(("BloscLZ", "2.5.1", 0)),
@@ -147,26 +137,32 @@ pub fn blosc2_compress(
 ) -> i32 {
     // Default compressor: BLOSCLZ (0)
     let compressor = BLOSC_BLOSCLZ;
-    
+
     let mut filters = [0u8; BLOSC2_MAX_FILTERS as usize];
     let filters_meta = [0u8; BLOSC2_MAX_FILTERS as usize];
-    
-    if doshuffle == BLOSC_SHUFFLE as i32 {
+
+    if doshuffle == BLOSC_SHUFFLE as i32 && typesize > 1 {
         filters[5] = BLOSC_SHUFFLE;
     } else if doshuffle == BLOSC_BITSHUFFLE as i32 {
         filters[5] = BLOSC_BITSHUFFLE;
     }
-    
-    match internal::compress_extended(clevel, doshuffle, typesize, src, dest, compressor, &filters, &filters_meta) {
+
+    match internal::compress_extended(
+        clevel,
+        doshuffle,
+        typesize,
+        src,
+        dest,
+        compressor,
+        &filters,
+        &filters_meta,
+    ) {
         Ok(size) => size as i32,
         Err(_) => 0,
     }
 }
 
-pub fn blosc2_decompress(
-    src: &[u8],
-    dest: &mut [u8],
-) -> i32 {
+pub fn blosc2_decompress(src: &[u8], dest: &mut [u8]) -> i32 {
     match internal::decompress(src, dest) {
         Ok(size) => size as i32,
         Err(_) => -1,
@@ -180,39 +176,48 @@ pub fn blosc2_create_cctx(cparams: Blosc2Cparams) -> Blosc2Context {
     }
 }
 
-pub fn blosc2_compress_ctx(
-    context: &Blosc2Context,
-    src: &[u8],
-    dest: &mut [u8],
-) -> i32 {
+pub fn blosc2_compress_ctx(context: &Blosc2Context, src: &[u8], dest: &mut [u8]) -> i32 {
     let clevel = context.cparams.clevel as i32;
     let typesize = context.cparams.typesize as usize;
     let compressor = context.cparams.compcode;
-    
+
     let mut doshuffle = BLOSC_NOSHUFFLE as i32;
     for &f in context.cparams.filters.iter() {
-        if f == BLOSC_SHUFFLE { doshuffle = BLOSC_SHUFFLE as i32; }
-        if f == BLOSC_BITSHUFFLE { doshuffle = BLOSC_BITSHUFFLE as i32; }
+        if f == BLOSC_SHUFFLE {
+            doshuffle = BLOSC_SHUFFLE as i32;
+        }
+        if f == BLOSC_BITSHUFFLE {
+            doshuffle = BLOSC_BITSHUFFLE as i32;
+        }
     }
-    
+
     // Filters are already u8 array
     let filters = context.cparams.filters;
     let filters_meta = context.cparams.filters_meta;
-    
-    match internal::compress_extended(clevel, doshuffle, typesize, src, dest, compressor, &filters, &filters_meta) {
+
+    match internal::compress_extended(
+        clevel,
+        doshuffle,
+        typesize,
+        src,
+        dest,
+        compressor,
+        &filters,
+        &filters_meta,
+    ) {
         Ok(size) => size as i32,
         Err(_) => 0,
     }
 }
 
-pub fn blosc2_cbuffer_sizes(
-    cbuffer: &[u8],
-) -> (usize, usize, usize) {
-    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH { return (0, 0, 0); }
+pub fn blosc2_cbuffer_sizes(cbuffer: &[u8]) -> (usize, usize, usize) {
+    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH {
+        return (0, 0, 0);
+    }
     let nb = u32::from_le_bytes([cbuffer[4], cbuffer[5], cbuffer[6], cbuffer[7]]) as usize;
     let bs = u32::from_le_bytes([cbuffer[8], cbuffer[9], cbuffer[10], cbuffer[11]]) as usize;
     let cb = u32::from_le_bytes([cbuffer[12], cbuffer[13], cbuffer[14], cbuffer[15]]) as usize;
-    
+
     (nb, cb, bs)
 }
 
@@ -223,11 +228,7 @@ pub fn blosc2_create_dctx(dparams: Blosc2Dparams) -> Blosc2Context {
     }
 }
 
-pub fn blosc2_decompress_ctx(
-    _context: &Blosc2Context,
-    src: &[u8],
-    dest: &mut [u8],
-) -> i32 {
+pub fn blosc2_decompress_ctx(_context: &Blosc2Context, src: &[u8], dest: &mut [u8]) -> i32 {
     match internal::decompress(src, dest) {
         Ok(size) => size as i32,
         Err(_) => -1,

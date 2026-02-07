@@ -1,9 +1,10 @@
 [package]
 name = "blusc"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["Mark"]
 edition = "2021"
-license-file = "c-blosc2/LICENSE.txt"
+license = "BSD-3-Clause"
+license-file = "LICENSE"
 exclude = [
     "c-blosc2/**",
     "reference/**",

@@ -1,11 +1,9 @@
 # blusc
 
 
-This is an attempt at a pure Rust implementation of Blosc compression and decompression.
+This is an attempt at a pure Rust implementation of [Blosc](https://github.com/Blosc/c-blosc2) compression and decompression.
 
-
-🚧 work in progress 🚧
-
+🚧 warning: ai slop 🚧
 
 The Blosc algorithm wraps other compression methods, including zstd, snappy, lz4, and zlib. We will use pure Rust implementations of these inner compression methods:
 
@@ -33,6 +31,9 @@ This crate offers pure rust implementations of the following functions and const
 - blosc2_create_dctx
 - blosc2_decompress_ctx
 
+
+Motivation: Why are all of our compression algorithms still bindings to C libraries? A pure Rust implementation enables more straightforward compilation to WASM targets.
+
 ## Development
 
 ```sh
@@ -49,6 +50,17 @@ cargo test -- --test-threads=1 --nocapture
 
 For reference during development, this crate contains the C implementations in `c-blosc` and `c-blosc2` directories as git submodules.
 
------
 
-Motivation: In 2025, why are all of our compression algorithms still bindings to C libraries?
+
+## Citing Blosc
+
+Copied from the [citing-blosc](https://github.com/Blosc/c-blosc2/tree/main?tab=readme-ov-file#citing-blosc) section of the c-blosc2 README.
+
+```bibtex
+@ONLINE{blosc,
+    author = {{Blosc Development Team}},
+    title = "{A fast, compressed and persistent data store library}",
+    year = {2009-2025},
+    note = {https://blosc.org}
+}
+```
