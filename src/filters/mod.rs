@@ -50,11 +50,11 @@ fn bshuf_trans_byte_elem_scal(in_buf: &[u8], out_buf: &mut [u8], size: usize, el
                 }
             }
         } else {
-             for k in ii..size {
+            for k in ii..size {
                 for jj in 0..elem_size {
                     out_buf[jj * size + k] = in_buf[k * elem_size + jj];
                 }
-             }
+            }
         }
     }
 }
@@ -62,16 +62,16 @@ fn bshuf_trans_byte_elem_scal(in_buf: &[u8], out_buf: &mut [u8], size: usize, el
 fn bshuf_trans_bit_byte_scal(in_buf: &[u8], out_buf: &mut [u8], size: usize, elem_size: usize) {
     let nbyte = elem_size * size;
     let nbyte_bitrow = nbyte / 8;
-    
+
     // Assuming little endian
     let bit_row_skip = nbyte_bitrow;
     let bit_row_offset = 0;
 
     for ii in 0..nbyte_bitrow {
         let offset = ii * 8;
-        let bytes = &in_buf[offset..offset+8];
+        let bytes = &in_buf[offset..offset + 8];
         let mut x = u64::from_ne_bytes(bytes.try_into().unwrap());
-        
+
         x = trans_bit_8x8(x);
         for kk in 0..8 {
             out_buf[bit_row_offset + kk * bit_row_skip + ii] = x as u8;
@@ -85,26 +85,47 @@ fn bshuf_trans_bitrow_eight(in_buf: &[u8], out_buf: &mut [u8], size: usize, elem
     let lda = 8;
     let ldb = elem_size;
     let block_size = nbyte_bitrow;
-    
+
     for ii in 0..lda {
         for jj in 0..ldb {
             let src_idx = (ii * ldb + jj) * block_size;
             let dst_idx = (jj * lda + ii) * block_size;
-            out_buf[dst_idx..dst_idx+block_size].copy_from_slice(&in_buf[src_idx..src_idx+block_size]);
+            out_buf[dst_idx..dst_idx + block_size]
+                .copy_from_slice(&in_buf[src_idx..src_idx + block_size]);
         }
     }
 }
 
-pub fn bitshuffle(bytesoftype: usize, blocksize: usize, src: &[u8], dest: &mut [u8]) -> Result<(), i32> {
+pub fn bitshuffle(
+    bytesoftype: usize,
+    blocksize: usize,
+    src: &[u8],
+    dest: &mut [u8],
+) -> Result<(), i32> {
     let size = blocksize / bytesoftype;
-    if size % 8 != 0 { return Err(-80); }
+    // Round down to multiple of 8 (bitshuffle only supports multiples of 8)
+    let aligned_size = size - (size % 8);
 
-    let mut tmp_buf = vec![0u8; blocksize];
-    
-    bshuf_trans_byte_elem_scal(src, dest, size, bytesoftype);
-    bshuf_trans_bit_byte_scal(dest, &mut tmp_buf, size, bytesoftype);
-    bshuf_trans_bitrow_eight(&tmp_buf, dest, size, bytesoftype);
-    
+    if aligned_size > 0 {
+        let aligned_bytes = aligned_size * bytesoftype;
+        let mut tmp_buf = vec![0u8; aligned_bytes];
+
+        bshuf_trans_byte_elem_scal(&src[..aligned_bytes], dest, aligned_size, bytesoftype);
+        bshuf_trans_bit_byte_scal(
+            &dest[..aligned_bytes],
+            &mut tmp_buf,
+            aligned_size,
+            bytesoftype,
+        );
+        bshuf_trans_bitrow_eight(&tmp_buf, dest, aligned_size, bytesoftype);
+    }
+
+    // Copy leftover bytes that can't be bitshuffled
+    let offset = aligned_size * bytesoftype;
+    if offset < blocksize {
+        dest[offset..blocksize].copy_from_slice(&src[offset..blocksize]);
+    }
+
     Ok(())
 }
 
@@ -113,12 +134,13 @@ fn bshuf_untrans_bitrow_eight(in_buf: &[u8], out_buf: &mut [u8], size: usize, el
     let lda = elem_size;
     let ldb = 8;
     let block_size = nbyte_bitrow;
-    
+
     for ii in 0..lda {
         for jj in 0..ldb {
             let src_idx = (ii * ldb + jj) * block_size;
             let dst_idx = (jj * lda + ii) * block_size;
-            out_buf[dst_idx..dst_idx+block_size].copy_from_slice(&in_buf[src_idx..src_idx+block_size]);
+            out_buf[dst_idx..dst_idx + block_size]
+                .copy_from_slice(&in_buf[src_idx..src_idx + block_size]);
         }
     }
 }
@@ -128,7 +150,8 @@ fn bshuf_untrans_bit_byte_scal(in_buf: &[u8], out_buf: &mut [u8], size: usize, e
     let nbyte_bitrow = nbyte / 8;
     let bit_row_skip = nbyte_bitrow;
 
-    let out_u64 = unsafe { std::slice::from_raw_parts_mut(out_buf.as_mut_ptr() as *mut u64, nbyte / 8) };
+    let out_u64 =
+        unsafe { std::slice::from_raw_parts_mut(out_buf.as_mut_ptr() as *mut u64, nbyte / 8) };
 
     for ii in 0..nbyte_bitrow {
         let mut x: u64 = 0;
@@ -141,23 +164,43 @@ fn bshuf_untrans_bit_byte_scal(in_buf: &[u8], out_buf: &mut [u8], size: usize, e
     }
 }
 
-pub fn bitunshuffle(bytesoftype: usize, blocksize: usize, src: &[u8], dest: &mut [u8]) -> Result<(), i32> {
+pub fn bitunshuffle(
+    bytesoftype: usize,
+    blocksize: usize,
+    src: &[u8],
+    dest: &mut [u8],
+) -> Result<(), i32> {
     let size = blocksize / bytesoftype;
-    if size % 8 != 0 { return Err(-80); }
+    // Round down to multiple of 8 (bitunshuffle only supports multiples of 8)
+    let aligned_size = size - (size % 8);
 
-    let mut tmp_buf = vec![0u8; blocksize];
-    let mut tmp_buf2 = vec![0u8; blocksize];
+    if aligned_size > 0 {
+        let aligned_bytes = aligned_size * bytesoftype;
+        let mut tmp_buf = vec![0u8; aligned_bytes];
+        let mut tmp_buf2 = vec![0u8; aligned_bytes];
 
-    // 1. Reverse Step 3: Untranspose bitrows
-    bshuf_untrans_bitrow_eight(src, &mut tmp_buf, size, bytesoftype);
+        // 1. Reverse Step 3: Untranspose bitrows
+        bshuf_untrans_bitrow_eight(
+            &src[..aligned_bytes],
+            &mut tmp_buf,
+            aligned_size,
+            bytesoftype,
+        );
 
-    // 2. Reverse Step 2: Untranspose bits
-    bshuf_untrans_bit_byte_scal(&tmp_buf, &mut tmp_buf2, size, bytesoftype);
+        // 2. Reverse Step 2: Untranspose bits
+        bshuf_untrans_bit_byte_scal(&tmp_buf, &mut tmp_buf2, aligned_size, bytesoftype);
 
-    // 3. Reverse Step 1: Untranspose bytes/elements
-    // Note: we swap size and bytesoftype to reverse the transpose
-    bshuf_trans_byte_elem_scal(&tmp_buf2, dest, bytesoftype, size);
-    
+        // 3. Reverse Step 1: Untranspose bytes/elements
+        // Note: we swap size and bytesoftype to reverse the transpose
+        bshuf_trans_byte_elem_scal(&tmp_buf2, dest, bytesoftype, aligned_size);
+    }
+
+    // Copy leftover bytes
+    let offset = aligned_size * bytesoftype;
+    if offset < blocksize {
+        dest[offset..blocksize].copy_from_slice(&src[offset..blocksize]);
+    }
+
     Ok(())
 }
 

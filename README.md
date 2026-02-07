@@ -3,10 +3,6 @@
 
 This is an attempt at a pure Rust implementation of [Blosc](https://github.com/Blosc/c-blosc2) compression and decompression.
 
-
-🚧 work in progress 🚧
-
-
 🚧 warning: ai slop 🚧
 
 The Blosc algorithm wraps other compression methods, including zstd, snappy, lz4, and zlib. We will use pure Rust implementations of these inner compression methods:
