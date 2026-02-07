@@ -2,8 +2,7 @@
 
 
 This is an attempt at a pure Rust implementation of [Blosc](https://github.com/Blosc/c-blosc2) compression and decompression.
-
-🚧 warning: ai slop 🚧
+Blusc is not intended to be as performant as the reference C implementation, as the goal here is to enable easy compilation to WASM targets (so we avoid optimizations like multi-threading, hardware acceleration, etc).
 
 The Blosc algorithm wraps other compression methods, including zstd, snappy, lz4, and zlib. We will use pure Rust implementations of these inner compression methods:
 
@@ -50,6 +49,11 @@ cargo test -- --test-threads=1 --nocapture
 
 For reference during development, this crate contains the C implementations in `c-blosc` and `c-blosc2` directories as git submodules.
 
+
+## AI usage disclaimer
+
+This README, `Cargo.toml`, the public interface/function signatures, initial unit tests, and the contents of `src/internal/constants.rs` were written by me, a human, or manually ported.
+The rest of the Rust code and other unit tests were largely LLM-generated/ported (see `AGENTS.md` for more details).
 
 
 ## Citing Blosc
