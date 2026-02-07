@@ -87,6 +87,12 @@ fn create_header_blosc2(
     header
 }
 
+/// Compresses `src` into `dest` using the given codec and a default filter pipeline.
+///
+/// This is the lower-level entry point used by [`crate::blosc2_compress`]. It handles
+/// block sizing, header construction, filter application, and per-block codec invocation.
+///
+/// Returns the total number of bytes written to `dest` (including the header).
 pub fn compress(
     clevel: i32,
     doshuffle: i32,
@@ -108,6 +114,10 @@ pub fn compress(
     )
 }
 
+/// Like [`compress`], but accepts an explicit filter pipeline and filter metadata.
+///
+/// Used by [`crate::blosc2_compress_ctx`] to support custom filter configurations
+/// beyond the simple shuffle modes.
 pub fn compress_extended(
     clevel: i32,
     doshuffle: i32,
@@ -451,6 +461,13 @@ fn compress_internal(
     Ok(cbytes)
 }
 
+/// Decompresses a Blosc/Blosc2 compressed buffer (including header) into `dest`.
+///
+/// Automatically detects the format version, codec, and filter pipeline from the
+/// header. Supports both Blosc1 (16-byte header) and Blosc2 (32-byte extended header)
+/// formats.
+///
+/// Returns the number of decompressed bytes written to `dest`.
 pub fn decompress(src: &[u8], dest: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
     if src.len() < BLOSC_MIN_HEADER_LENGTH {
         return Err("Source buffer too small for header".into());
@@ -717,6 +734,11 @@ pub fn decompress(src: &[u8], dest: &mut [u8]) -> Result<usize, Box<dyn std::err
     Ok(nbytes)
 }
 
+/// Partially decompresses a Blosc buffer, extracting `nitems` elements starting
+/// at element index `start`.
+///
+/// This avoids decompressing the entire buffer when only a subset of elements is
+/// needed. Returns the number of bytes written to `dest`.
 pub fn getitem(src: &[u8], start: usize, nitems: usize, dest: &mut [u8]) -> Result<usize, i32> {
     if src.len() < BLOSC_MIN_HEADER_LENGTH {
         return Err(-1);

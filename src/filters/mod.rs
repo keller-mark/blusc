@@ -1,3 +1,8 @@
+/// Byte-wise shuffle: rearranges bytes so that the most-significant bytes of all
+/// elements are grouped together, then the next bytes, and so on.
+///
+/// This improves compression ratios because bytes at the same significance level
+/// tend to be similar. `bytesoftype` is the element size (e.g. 4 for `f32`).
 pub fn shuffle(bytesoftype: usize, blocksize: usize, src: &[u8], dest: &mut [u8]) {
     let neblock_quot = blocksize / bytesoftype;
     let neblock_rem = blocksize % bytesoftype;
@@ -14,6 +19,8 @@ pub fn shuffle(bytesoftype: usize, blocksize: usize, src: &[u8], dest: &mut [u8]
     }
 }
 
+/// Inverse of [`shuffle`]: restores the original element-interleaved byte order
+/// from a significance-grouped layout.
 pub fn unshuffle(bytesoftype: usize, blocksize: usize, src: &[u8], dest: &mut [u8]) {
     let neblock_quot = blocksize / bytesoftype;
     let neblock_rem = blocksize % bytesoftype;
@@ -96,6 +103,12 @@ fn bshuf_trans_bitrow_eight(in_buf: &[u8], out_buf: &mut [u8], size: usize, elem
     }
 }
 
+/// Bit-wise shuffle: transposes individual bits across elements, grouping
+/// corresponding bits of all elements together.
+///
+/// More aggressive than [`shuffle`] — works at the bit level rather than
+/// byte level, which can yield better compression for data with low bit-entropy.
+/// The element count is rounded down to a multiple of 8; leftover bytes are copied as-is.
 pub fn bitshuffle(
     bytesoftype: usize,
     blocksize: usize,
@@ -164,6 +177,8 @@ fn bshuf_untrans_bit_byte_scal(in_buf: &[u8], out_buf: &mut [u8], size: usize, e
     }
 }
 
+/// Inverse of [`bitshuffle`]: restores the original byte layout from a
+/// bit-transposed representation.
 pub fn bitunshuffle(
     bytesoftype: usize,
     blocksize: usize,

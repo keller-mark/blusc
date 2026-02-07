@@ -3,6 +3,11 @@ const MAX_DISTANCE: usize = 8191;
 const MAX_FARDISTANCE: usize = 65535 + MAX_DISTANCE - 1;
 const HASH_LOG: usize = 14;
 
+/// Decompresses a raw BloscLZ-compressed block into `output`.
+///
+/// Returns the number of bytes written to `output`. This operates on a single
+/// block — the outer Blosc framing and filter pipeline are handled by
+/// [`crate::internal::decompress`].
 pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
     if input.is_empty() {
         return 0;
@@ -349,6 +354,12 @@ fn get_cratio(
     ic / oc as f64
 }
 
+/// Compresses `input` into `output` using the BloscLZ algorithm.
+///
+/// - `clevel`: compression level (1–9). Higher levels try harder at the cost of speed.
+///
+/// Returns the number of compressed bytes written to `output`, or 0 if the data
+/// is incompressible at the given level.
 pub fn compress(clevel: i32, input: &[u8], output: &mut [u8]) -> usize {
     if input.is_empty() {
         return 0;
