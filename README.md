@@ -2,7 +2,11 @@
 
 
 This is an attempt at a pure Rust implementation of [Blosc](https://github.com/Blosc/c-blosc2) compression and decompression.
+
+
 Blusc is not intended to be as performant as the reference C implementation, as the goal here is to enable easy compilation to WASM targets (so we avoid optimizations like multi-threading, hardware acceleration, etc).
+
+## Background
 
 The Blosc algorithm wraps other compression methods, including zstd, snappy, lz4, and zlib. We will use pure Rust implementations of these inner compression methods:
 
@@ -31,7 +35,7 @@ This crate offers pure rust implementations of the following functions and const
 - blosc2_decompress_ctx
 
 
-Motivation: Why are all of our compression algorithms still bindings to C libraries? A pure Rust implementation enables more straightforward compilation to WASM targets.
+<!-- Motivation: Why are all of our compression algorithms still bindings to C libraries? -->
 
 ## Development
 
