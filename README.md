@@ -32,7 +32,7 @@ This crate offers pure rust implementations of the following functions and const
 - blosc2_decompress_ctx
 
 
-Motivation: Why are all of our compression algorithms still bindings to C libraries?
+Motivation: Why are all of our compression algorithms still bindings to C libraries? A pure Rust implementation enables more straightforward compilation to WASM targets.
 
 ## Development
 
