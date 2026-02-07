@@ -4,7 +4,6 @@ version = "0.0.2"
 authors = ["Mark"]
 edition = "2021"
 license = "BSD-3-Clause"
-license-file = "LICENSE"
 exclude = [
     "c-blosc2/**",
     "reference/**",
