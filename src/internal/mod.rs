@@ -201,6 +201,10 @@ fn compute_blocksize(
         blocksize = nbytes;
     }
 
+    // TODO: fails with a division by zero error when typesize=0.
+    // This is occurring in zarrs for the tests "codec_blosc_round_trip_snappy" and "codec_blosc_round_trip3",
+    // neither of which specify the "typesize" param
+    // (but both specify "shuffle": "noshuffle" and "blocksize": 0).
     if blocksize > typesize {
         blocksize = (blocksize / typesize) * typesize;
     }
