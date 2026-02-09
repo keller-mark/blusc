@@ -226,3 +226,32 @@ fn context_bitshuffle() {
     );
     assert_eq!(src_bytes, &decompressed[..], "Bitshuffle roundtrip failed");
 }
+
+#[test]
+fn test_codec_blosc_round_trip_snappy() {
+    // blosc_compress_bytes(src len: 64, clevel: BloscCompressionLevel(4), shuffle_mode: NoShuffle, typesize: 0, compressor: Snappy, blocksize: 0, numinternalthreads: 1)
+
+    let src: Vec<u8> = vec![0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0, 8, 0, 9, 0, 10, 0, 11, 0, 12, 0, 13, 0, 14, 0, 15, 0, 16, 0, 17, 0, 18, 0, 19, 0, 20, 0, 21, 0, 22, 0, 23, 0, 24, 0, 25, 0, 26, 0, 27, 0, 28, 0, 29, 0, 30, 0, 31, 0];
+    let numinternalthreads = 1;
+    let blocksize = 0;
+    let compressor = 2; // Snappy
+    let shuffle_mode = 0; // NoShuffle
+    let clevel = 4;
+    let typesize = 0;
+    let destsize = src.len() + BLOSC2_MAX_OVERHEAD as usize;
+    let mut dest: Vec<u8> = vec![0; destsize];
+    let destsize = {
+        let mut cparams = BLUSC_BLOSC2_CPARAMS_DEFAULTS;
+        cparams.typesize = typesize as i32;
+        cparams.clevel = clevel.into();
+        cparams.nthreads = numinternalthreads as i16;
+        cparams.blocksize = blocksize as i32;
+        cparams.compcode = compressor;
+        cparams.filters[5] = shuffle_mode;
+        let context = blusc_blosc2_create_cctx(cparams);
+
+        blusc_blosc2_compress_ctx(&context, &src, &mut dest)
+    };
+
+    assert!(destsize > 0, "Compression failed");
+}
