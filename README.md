@@ -35,7 +35,24 @@ This crate offers pure rust implementations of the following functions and const
 - blosc2_decompress_ctx
 
 
-<!-- Motivation: Why are all of our compression algorithms still bindings to C libraries? -->
+
+### Motivation
+
+I tried and [failed](https://github.com/mulimoen/rust-blosc-src/compare/main...keller-mark:rust-blosc-src:keller-mark/shims) to compile existing Rust bindings to c-blosc to WASM (requiring [shims](https://github.com/mulimoen/rust-blosc-src/issues/23) for C standard library things), which motivated this pure Rust implementation.
+Another aspect that complicates things is that c-blosc internally uses C libraries such as zstd, which can result in function name conflicts when used in codebases that depend on both c-blosc and zstd bindings:
+
+```
+some_crate
+  - rust-bindings-to-c-blosc
+    - c-blosc (C implementation)
+      - zstd (C implementation)
+  - rust-bindings-to-zstd
+    - zstd (C implementation)
+```
+
+More broadly, it makes sense to have alternative implementations (especially in Rust) of widely-used compression algorithms.
+
+
 
 ## Development
 
