@@ -76,3 +76,9 @@ Copied from the [citing-blosc](https://github.com/Blosc/c-blosc2/tree/main?tab=r
 ## Related work
 
 - [numcodecs.js](https://github.com/manzt/numcodecs.js/tree/main/codecs/blosc) compiles c-blosc to WebAssembly via Emscripten.
+- https://github.com/maiteko/blosc2-src-rs
+- https://github.com/mulimoen/rust-blosc-src
+- https://github.com/asomers/blosc-rs
+- https://github.com/barakugav/blosc-rs
+- https://github.com/milesgranger/blosc2-rs
+- https://github.com/bfffs/byteshuffle
