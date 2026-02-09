@@ -46,7 +46,7 @@ cargo build
 ### Testing
 
 ```sh
-cargo test -- --test-threads=1 --nocapture
+cargo test
 ```
 
 
