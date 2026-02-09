@@ -51,7 +51,7 @@ cargo test -- --test-threads=1 --nocapture
 
 
 
-For reference during development, this repository contains the C implementations in `c-blosc` and `c-blosc2` directories as git submodules.
+For reference during development, this repository contains the C implementations in the `c-blosc` and `c-blosc2` directories as git submodules.
 
 
 ## AI usage disclaimer
@@ -75,4 +75,4 @@ Copied from the [citing-blosc](https://github.com/Blosc/c-blosc2/tree/main?tab=r
 
 ## Related work
 
-WASM compilation of c-blosc in [numcodecs.js](https://github.com/manzt/numcodecs.js/tree/main/codecs/blosc) via Emscripten.
+- [numcodecs.js](https://github.com/manzt/numcodecs.js/tree/main/codecs/blosc) compiles c-blosc to WebAssembly via Emscripten.
