@@ -332,6 +332,93 @@ fn zlib_large_buffer() {
     run_compressor_roundtrip(BLOSC_ZLIB, "ZLIB", 4, 1, 5, 100000);
 }
 
+// --- Snappy clevel 4, noshuffle, blocksize 0 ---
+
+#[test]
+fn snappy_noshuffle_clevel4_blocksize0() {
+    let compcode = BLOSC_SNAPPY;
+    let typesize: i32 = 4;
+    let num_elements: usize = 10000;
+    let buffer_size = typesize as usize * num_elements;
+
+    let mut src = vec![0u8; buffer_size];
+    for (i, byte) in src.iter_mut().enumerate() {
+        *byte = i as u8;
+    }
+
+    let mut cparams = BLUSC_BLOSC2_CPARAMS_DEFAULTS;
+    cparams.typesize = typesize;
+    cparams.compcode = compcode;
+    cparams.clevel = 4;
+    cparams.blocksize = 0;
+    cparams.filters[5] = 0; // noshuffle
+    let cctx = blusc_blosc2_create_cctx(cparams);
+
+    let mut compressed = vec![0u8; buffer_size + BLOSC2_MAX_OVERHEAD];
+    let csize = blusc_blosc2_compress_ctx(&cctx, &src, &mut compressed);
+    assert!(
+        csize > 0,
+        "Snappy compression failed (clevel=4, noshuffle, blocksize=0)"
+    );
+    compressed.truncate(csize as usize);
+
+    let dparams = BLUSC_BLOSC2_DPARAMS_DEFAULTS;
+    let dctx = blusc_blosc2_create_dctx(dparams);
+    let mut decompressed = vec![0u8; buffer_size];
+    let dsize = blusc_blosc2_decompress_ctx(&dctx, &compressed, &mut decompressed);
+    assert_eq!(
+        dsize as usize, buffer_size,
+        "Snappy decompression size mismatch: expected {}, got {}",
+        buffer_size, dsize
+    );
+    assert_eq!(
+        src, decompressed,
+        "Snappy roundtrip data mismatch (clevel=4, noshuffle, blocksize=0)"
+    );
+}
+
+#[test]
+fn snappy_noshuffle_clevel4_blocksize0_typesize0() {
+    let compcode = BLOSC_SNAPPY;
+    let typesize: i32 = 0;
+    let buffer_size = 40000;
+
+    let mut src = vec![0u8; buffer_size];
+    for (i, byte) in src.iter_mut().enumerate() {
+        *byte = i as u8;
+    }
+
+    let mut cparams = BLUSC_BLOSC2_CPARAMS_DEFAULTS;
+    cparams.typesize = typesize;
+    cparams.compcode = compcode;
+    cparams.clevel = 4;
+    cparams.blocksize = 0;
+    cparams.filters[5] = 0; // noshuffle
+    let cctx = blusc_blosc2_create_cctx(cparams);
+
+    let mut compressed = vec![0u8; buffer_size + BLOSC2_MAX_OVERHEAD];
+    let csize = blusc_blosc2_compress_ctx(&cctx, &src, &mut compressed);
+    assert!(
+        csize > 0,
+        "Snappy compression failed (clevel=4, noshuffle, blocksize=0, typesize=0)"
+    );
+    compressed.truncate(csize as usize);
+
+    let dparams = BLUSC_BLOSC2_DPARAMS_DEFAULTS;
+    let dctx = blusc_blosc2_create_dctx(dparams);
+    let mut decompressed = vec![0u8; buffer_size];
+    let dsize = blusc_blosc2_decompress_ctx(&dctx, &compressed, &mut decompressed);
+    assert_eq!(
+        dsize as usize, buffer_size,
+        "Snappy decompression size mismatch: expected {}, got {}",
+        buffer_size, dsize
+    );
+    assert_eq!(
+        src, decompressed,
+        "Snappy roundtrip data mismatch (clevel=4, noshuffle, blocksize=0, typesize=0)"
+    );
+}
+
 // --- Bitshuffle with different compressors ---
 
 #[test]

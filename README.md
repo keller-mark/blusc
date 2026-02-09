@@ -1,7 +1,7 @@
 # blusc
 
 
-This is an attempt at a pure Rust implementation of [Blosc](https://github.com/Blosc/c-blosc2) compression and decompression.
+This is an attempt at a pure Rust implementation of [c-blosc2](https://github.com/Blosc/c-blosc2) compression and decompression.
 
 
 Blusc is not intended to be as performant as the reference C implementation, as the goal here is to enable easy compilation to WASM targets (so we avoid optimizations like multi-threading, hardware acceleration, etc).
@@ -51,7 +51,7 @@ cargo test -- --test-threads=1 --nocapture
 
 
 
-For reference during development, this crate contains the C implementations in `c-blosc` and `c-blosc2` directories as git submodules.
+For reference during development, this repository contains the C implementations in `c-blosc` and `c-blosc2` directories as git submodules.
 
 
 ## AI usage disclaimer
@@ -72,3 +72,7 @@ Copied from the [citing-blosc](https://github.com/Blosc/c-blosc2/tree/main?tab=r
     note = {https://blosc.org}
 }
 ```
+
+## Related work
+
+WASM compilation of c-blosc in [numcodecs.js](https://github.com/manzt/numcodecs.js/tree/main/codecs/blosc) via Emscripten.
