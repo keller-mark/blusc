@@ -1,10 +1,10 @@
 # blusc
 
 
-This is an attempt at a pure Rust implementation of [c-blosc2](https://github.com/Blosc/c-blosc2) compression and decompression.
+This is a pure Rust implementation of [c-blosc2](https://github.com/Blosc/c-blosc2) compression and decompression.
 
 
-Blusc is not intended to be as performant as the reference C implementation, as the goal here is to enable easy compilation to WASM targets (so we avoid optimizations like multi-threading, hardware acceleration, etc).
+Blusc is not intended to be as performant as the reference C implementation, as the goal here is to enable easy compilation to WASM targets (so we avoid optimizations like multi-threading, hardware acceleration, etc). I have not performed any benchmarks.
 
 ## Background
 
