@@ -1,7 +1,7 @@
 # blusc
 
 [![Latest Version](https://img.shields.io/crates/v/blusc.svg)](https://crates.io/crates/blusc)
-[![blusc documentation](https://docs.rs/blusc/badge.svg)][documentation]
+[![blusc documentation](https://docs.rs/blusc/badge.svg)](https://docs.rs/blusc/latest/)
 
 This is a pure Rust implementation of [c-blosc2](https://github.com/Blosc/c-blosc2) compression and decompression.
 
