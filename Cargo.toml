@@ -1,17 +1,21 @@
 [package]
 name = "blusc"
 version = "0.0.2"
-authors = ["Mark"]
+authors = ["Mark Keller <markkellerweb+git@gmail.com>"]
 edition = "2021"
 license = "BSD-3-Clause"
 exclude = [
+    ".github/",
+    "c-blosc/**",
     "c-blosc2/**",
-    "reference/**",
 ]
 repository = "https://github.com/keller-mark/blusc"
-keywords = ["compression"]
-categories = ["compression"]
-description = "Pure rust implementation for blosc"
+keywords = ["compression", "blosc"]
+categories = ["compression", "wasm"]
+description = "Rust implementation of blosc compression, port of c-blosc2"
+
+[lib]
+crate-type = ["lib"]
 
 [dependencies]
 lz4_flex = "0.12.0"
