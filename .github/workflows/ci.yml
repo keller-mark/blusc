@@ -30,7 +30,7 @@ jobs:
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: "1.82"
+        toolchain: "1.91"
     # Reference: https://github.com/zarrs/zarrs/blob/9a8a79e72f2220e8c07269e77769e2f3419c9cd3/.github/workflows/ci.yml#L179
     - run: cargo install cargo-hack cargo-minimal-versions --locked
     - run: cargo minimal-versions check --all-features
