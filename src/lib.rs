@@ -20,6 +20,8 @@
 
 /// High-level compress/decompress API, context management, and header introspection.
 pub mod api;
+/// Idiomatic Rust convenience wrappers: bytes-in, `Result<Vec<u8>>` out.
+pub mod convenience;
 /// Compression codec implementations (BloscLZ, etc.).
 pub mod codecs;
 /// Pre-compression filter implementations (byte shuffle, bitshuffle).
