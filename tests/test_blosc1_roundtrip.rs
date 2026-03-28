@@ -22,9 +22,9 @@ use blosc_src::{
 use blusc::{
     blosc2_decompress as blusc_blosc2_decompress,
     blosc2_create_cctx as blusc_blosc2_create_cctx,
-    blosc2_compress_ctx as blusc_blosc2_compress_ctx,
+    blosc1_compress_ctx as blusc_blosc1_compress_ctx,
     BLOSC2_CPARAMS_DEFAULTS as BLUSC_BLOSC2_CPARAMS_DEFAULTS,
-    BLOSC2_MAX_OVERHEAD as BLUSC_BLOSC2_MAX_OVERHEAD,
+    BLOSC_MIN_HEADER_LENGTH as BLUSC_BLOSC1_MAX_OVERHEAD,
     BLOSC_BLOSCLZ as BLUSC_BLOSCLZ,
     BLOSC_LZ4 as BLUSC_LZ4,
     BLOSC_LZ4HC as BLUSC_LZ4HC,
@@ -149,7 +149,7 @@ fn blusc_to_blosc1(
 ) {
     let src = generate_test_data(typesize, num_elements);
 
-    let mut compressed = vec![0u8; src.len() + BLUSC_BLOSC2_MAX_OVERHEAD as usize];
+    let mut compressed = vec![0u8; src.len() + BLUSC_BLOSC1_MAX_OVERHEAD];
 
     let mut cparams = BLUSC_BLOSC2_CPARAMS_DEFAULTS;
     cparams.compcode = compressor;
@@ -164,7 +164,7 @@ fn blusc_to_blosc1(
     }
 
     let cctx = blusc_blosc2_create_cctx(cparams);
-    let csize = blusc_blosc2_compress_ctx(&cctx, &src, &mut compressed);
+    let csize = blusc_blosc1_compress_ctx(&cctx, &src, &mut compressed);
 
     assert!(
         csize > 0,

@@ -101,6 +101,13 @@ pub fn compress(
     dest: &mut [u8],
     compressor: u8,
 ) -> Result<usize, i32> {
+    let mut filters = [BLOSC_NOFILTER; 6];
+    if doshuffle == BLOSC_SHUFFLE as i32 && typesize > 1 {
+        filters[5] = BLOSC_SHUFFLE;
+    } else if doshuffle == BLOSC_BITSHUFFLE as i32 {
+        filters[5] = BLOSC_BITSHUFFLE;
+    }
+
     compress_internal(
         clevel,
         doshuffle,
@@ -109,7 +116,7 @@ pub fn compress(
         dest,
         compressor,
         false,
-        &[BLOSC_NOFILTER as u8; 6],
+        &filters,
         &[0; 6],
     )
 }
@@ -147,6 +154,7 @@ fn compute_blocksize(
     nbytes: usize,
     compressor: u8,
     filter_flags: u8,
+    extended_header: bool,
 ) -> usize {
     if nbytes < typesize {
         return nbytes.max(1);
@@ -155,7 +163,7 @@ fn compute_blocksize(
     let mut blocksize = nbytes;
 
     // Check splitmode using the initial blocksize (= nbytes), matching C behavior
-    let splitmode = split_block(compressor, clevel, typesize, blocksize, filter_flags);
+    let splitmode = split_block(compressor, clevel, typesize, blocksize, filter_flags, extended_header);
 
     if nbytes >= L1 {
         blocksize = L1;
@@ -232,14 +240,14 @@ fn filters_to_flags(filters: &[u8; 6]) -> u8 {
     flags
 }
 
-fn split_block(
+/// Blosc2 split logic (c-blosc2 stune.c): only split for byte shuffle, not bitshuffle.
+fn split_block_blosc2(
     compressor: u8,
     clevel: i32,
     typesize: usize,
     blocksize: usize,
     filter_flags: u8,
 ) -> bool {
-    // Only split for byte shuffle, NOT bitshuffle (as per c-blosc2 stune.c)
     if (filter_flags & BLOSC_DOSHUFFLE) == 0 {
         return false;
     }
@@ -251,6 +259,32 @@ fn split_block(
     };
 
     split && (typesize <= 16) && (blocksize / typesize >= BLOSC_MIN_BUFFERSIZE)
+}
+
+/// Blosc1 split logic (c-blosc blosc.c): FORWARD_COMPAT_SPLIT mode, no shuffle check.
+fn split_block_blosc1(
+    compressor: u8,
+    typesize: usize,
+    blocksize: usize,
+) -> bool {
+    (compressor != BLOSC_ZSTD)
+        && (typesize <= 16)
+        && (blocksize / typesize >= BLOSC_MIN_BUFFERSIZE)
+}
+
+fn split_block(
+    compressor: u8,
+    clevel: i32,
+    typesize: usize,
+    blocksize: usize,
+    filter_flags: u8,
+    extended_header: bool,
+) -> bool {
+    if extended_header {
+        split_block_blosc2(compressor, clevel, typesize, blocksize, filter_flags)
+    } else {
+        split_block_blosc1(compressor, typesize, blocksize)
+    }
 }
 
 fn compress_internal(
@@ -270,7 +304,7 @@ fn compress_internal(
     // Must be computed before blocksize since split_block depends on it.
     let filter_flags = filters_to_flags(filters);
 
-    let blocksize = compute_blocksize(clevel, typesize, nbytes, compressor, filter_flags);
+    let blocksize = compute_blocksize(clevel, typesize, nbytes, compressor, filter_flags, extended_header);
     let nblocks = if nbytes == 0 {
         0
     } else {
@@ -290,10 +324,14 @@ fn compress_internal(
     }
 
     // Use actual filter_flags (not header flags) for split decision, matching C behavior
-    let split = split_block(compressor, clevel, typesize, blocksize, filter_flags);
+    let split = split_block(compressor, clevel, typesize, blocksize, filter_flags, extended_header);
 
-    if !split && clevel != 0 && nbytes >= BLOSC_MIN_BUFFERSIZE {
-        flags |= 0x10;
+    if !split {
+        // For blosc2, only set dont_split when clevel > 0 (matching C blosc2 stune.c)
+        // For blosc1, always set dont_split when not splitting (matching C blosc1 write_compression_header)
+        if !extended_header || (clevel != 0 && nbytes >= BLOSC_MIN_BUFFERSIZE) {
+            flags |= 0x10;
+        }
     }
 
     // Calculate data start offset
@@ -336,7 +374,7 @@ fn compress_internal(
         // C does not split the leftover (last partial) block
         let leftoverblock = i == nblocks - 1 && (nbytes % blocksize) != 0;
         let block_split =
-            !leftoverblock && split_block(compressor, clevel, typesize, block_len, filter_flags);
+            !leftoverblock && split_block(compressor, clevel, typesize, block_len, filter_flags, extended_header);
         let nstreams = if block_split { typesize } else { 1 };
         let neblock = block_len / nstreams;
 
@@ -356,7 +394,7 @@ fn compress_internal(
                     stream_csize =
                         blosclz::compress(clevel, stream_src, &mut dest[current_dest_offset + 4..]);
                 }
-                BLOSC_LZ4 => {
+                BLOSC_LZ4 | BLOSC_LZ4HC => {
                     match lz4_flex::block::compress_into(
                         stream_src,
                         &mut dest[current_dest_offset + 4..],
