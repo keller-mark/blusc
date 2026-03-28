@@ -40,7 +40,7 @@ fn blosc2_cleanup() {
 #[test]
 fn small_buffer_2_bytes() {
     let src: Vec<u8> = vec![0, 1];
-    let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD as usize];
 
     // Context-based
     let mut cparams = BLUSC_BLOSC2_CPARAMS_DEFAULTS;
@@ -70,7 +70,7 @@ fn small_buffer_2_bytes() {
 #[test]
 fn small_buffer_2_bytes_direct() {
     let src: Vec<u8> = vec![0, 1];
-    let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD as usize];
 
     let csize = blusc_blosc2_compress(9, 1, 1, &src, &mut compressed);
     assert!(csize > 0, "Small buffer direct compression failed");
@@ -86,7 +86,7 @@ fn small_buffer_2_bytes_direct() {
 #[test]
 fn buffer_at_min_buffersize() {
     let src = vec![42u8; 32];
-    let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD as usize];
 
     let csize = blusc_blosc2_compress(5, 0, 1, &src, &mut compressed);
     assert!(csize > 0, "Compression at min buffersize failed");
@@ -103,7 +103,7 @@ fn buffer_at_min_buffersize() {
 fn buffer_below_min_buffersize() {
     for size in [1, 2, 4, 8, 15, 16, 31] {
         let src: Vec<u8> = (0..size as u8).collect();
-        let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD];
+        let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD as usize];
 
         let csize = blusc_blosc2_compress(5, 0, 1, &src, &mut compressed);
         assert!(csize > 0, "Compression failed for size={}", size);
@@ -124,7 +124,7 @@ fn buffer_below_min_buffersize() {
 #[test]
 fn all_zeros_buffer() {
     let src = vec![0u8; 100_000];
-    let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD as usize];
 
     let csize = blusc_blosc2_compress(5, 1, 4, &src, &mut compressed);
     assert!(csize > 0, "All-zeros compression failed");
@@ -146,7 +146,7 @@ fn all_zeros_buffer() {
 #[test]
 fn all_ones_buffer() {
     let src = vec![0xFFu8; 100_000];
-    let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD as usize];
 
     let csize = blusc_blosc2_compress(5, 1, 4, &src, &mut compressed);
     assert!(csize > 0);
@@ -162,7 +162,7 @@ fn all_ones_buffer() {
 #[test]
 fn cbuffer_info_functions() {
     let src: Vec<u8> = (0..1000).map(|i| (i % 256) as u8).collect();
-    let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD as usize];
 
     let csize = blusc_blosc2_compress(5, 1, 4, &src, &mut compressed);
     assert!(csize > 0);
@@ -213,7 +213,7 @@ fn cross_validate_patterns() {
     ];
 
     for (name, src) in &patterns {
-        let dest_size = src.len() + BLOSC2_MAX_OVERHEAD;
+        let dest_size = src.len() + BLOSC2_MAX_OVERHEAD as usize;
 
         let mut compressed_blusc = vec![0u8; dest_size];
         let csize_blusc = blusc_blosc2_compress(5, 0, 1, src, &mut compressed_blusc);

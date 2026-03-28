@@ -48,37 +48,37 @@ pub const BLOSC2_VERSION_FRAME_FORMAT_RC1: u8 = 2;
 pub const BLOSC2_VERSION_FRAME_FORMAT: u8 = BLOSC2_VERSION_FRAME_FORMAT_RC1;
 
 /// Minimum header length in bytes (Blosc1 header).
-pub const BLOSC_MIN_HEADER_LENGTH: usize = 16;
+pub const BLOSC_MIN_HEADER_LENGTH: u32 = 16;
 
 /// Extended header length in bytes (Blosc2 header).
-pub const BLOSC_EXTENDED_HEADER_LENGTH: usize = 32;
+pub const BLOSC_EXTENDED_HEADER_LENGTH: u32 = 32;
 
 /// Maximum compression overhead in bytes added by the Blosc2 framing.
 ///
 /// Allocate at least `src.len() + BLOSC2_MAX_OVERHEAD` for the destination buffer.
-pub const BLOSC2_MAX_OVERHEAD: usize = BLOSC_EXTENDED_HEADER_LENGTH;
+pub const BLOSC2_MAX_OVERHEAD: u32 = BLOSC_EXTENDED_HEADER_LENGTH;
 
 /// Maximum value of a 32-bit signed integer.
-pub const INT_MAX: usize = 2147483647;
+pub const INT_MAX: u32 = 2147483647;
 /// Maximum value of an unsigned 8-bit integer.
-pub const UINT8_MAX: usize = 255;
+pub const UINT8_MAX: u32 = 255;
 
 /// Maximum source buffer size (in bytes) that can be compressed.
-pub const BLOSC2_MAX_BUFFERSIZE: usize = INT_MAX - BLOSC2_MAX_OVERHEAD;
+pub const BLOSC2_MAX_BUFFERSIZE: u32 = INT_MAX - BLOSC2_MAX_OVERHEAD;
 
 /// Maximum typesize in bytes before the source is treated as a raw byte stream.
-pub const BLOSC_MAX_TYPESIZE: usize = UINT8_MAX;
+pub const BLOSC_MAX_TYPESIZE: u32 = UINT8_MAX;
 
 /// Minimum buffer size in bytes that Blosc will attempt to compress.
-pub const BLOSC_MIN_BUFFERSIZE: usize = 32;
+pub const BLOSC_MIN_BUFFERSIZE: u32 = 32;
 
 /// Typical L1 cache size used for block-size heuristics.
-pub const L1: usize = 32 * 1024;
+pub const L1: u32 = 32 * 1024;
 /// Typical L2 cache size used for block-size heuristics.
-pub const L2: usize = 256 * 1024;
+pub const L2: u32 = 256 * 1024;
 
 /// Maximum block size in bytes.
-pub const BLOSC_MAX_BLOCKSIZE: usize = BLOSC2_MAX_BUFFERSIZE;
+pub const BLOSC_MAX_BLOCKSIZE: u32 = BLOSC2_MAX_BUFFERSIZE;
 
 // Not used here, but exported for compatibility reasons.
 // Reference: https://github.com/mulimoen/rust-blosc-src/blob/8fb7864e2b2ce03dff400e444bf34005c0447357/src/bindgen.rs#L20

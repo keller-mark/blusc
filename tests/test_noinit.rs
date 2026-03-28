@@ -22,7 +22,7 @@ fn noinit_compress() {
         src[i * 4..(i + 1) * 4].copy_from_slice(&val.to_ne_bytes());
     }
 
-    let mut compressed = vec![0u8; size + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; size + BLOSC2_MAX_OVERHEAD as usize];
     let csize = blusc_blosc2_compress(5, 1, typesize, &src, &mut compressed);
     assert!(csize > 0, "Compression failed: csize={}", csize);
     assert!(
@@ -47,7 +47,7 @@ fn noinit_compress_decompress() {
         src[i * 4..(i + 1) * 4].copy_from_slice(&val.to_ne_bytes());
     }
 
-    let mut compressed = vec![0u8; size + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; size + BLOSC2_MAX_OVERHEAD as usize];
     let csize = blusc_blosc2_compress(1, 1, typesize, &src, &mut compressed);
     assert!(csize > 0, "Compression failed");
     compressed.truncate(csize as usize);
@@ -76,7 +76,7 @@ fn noinit_multiple_clevels() {
     }
 
     for clevel in 0..=9 {
-        let mut compressed = vec![0u8; size + BLOSC2_MAX_OVERHEAD];
+        let mut compressed = vec![0u8; size + BLOSC2_MAX_OVERHEAD as usize];
         let csize = blusc_blosc2_compress(clevel, 1, typesize, &src, &mut compressed);
         assert!(
             csize > 0,

@@ -152,7 +152,7 @@ fn blusc_to_blosc1(
 ) {
     let src = generate_test_data(typesize, num_elements);
 
-    let mut compressed = vec![0u8; src.len() + BLUSC_BLOSC1_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; src.len() + BLUSC_BLOSC1_MAX_OVERHEAD as usize];
 
     let mut cparams = BLUSC_BLOSC2_CPARAMS_DEFAULTS;
     cparams.compcode = compressor;

@@ -32,7 +32,7 @@ pub fn blosc1_compress(src: &[u8]) -> Result<Vec<u8>, BloscError> {
     let doshuffle = BLOSC_SHUFFLE as i32;
     let compressor = BLOSC_BLOSCLZ;
 
-    let max_out = src.len() + BLOSC_MIN_HEADER_LENGTH;
+    let max_out = src.len() + BLOSC_MIN_HEADER_LENGTH as usize;
     let mut dest = vec![0u8; max_out];
 
     internal::compress(clevel, doshuffle, typesize, src, &mut dest, compressor)
@@ -49,7 +49,7 @@ pub fn blosc1_compress(src: &[u8]) -> Result<Vec<u8>, BloscError> {
 /// Returns the decompressed bytes on success.
 pub fn blosc1_decompress(src: &[u8]) -> Result<Vec<u8>, BloscError> {
     let (nbytes, _, _) = blosc2_cbuffer_sizes(src);
-    if nbytes == 0 && src.len() < BLOSC_MIN_HEADER_LENGTH {
+    if nbytes == 0 && src.len() < BLOSC_MIN_HEADER_LENGTH as usize {
         return Err(BloscError::InvalidHeader);
     }
 
@@ -77,7 +77,7 @@ pub fn blosc2_compress(src: &[u8]) -> Result<Vec<u8>, BloscError> {
         actual_filters[5] = BLOSC_SHUFFLE;
     }
 
-    let max_out = src.len() + BLOSC2_MAX_OVERHEAD;
+    let max_out = src.len() + BLOSC2_MAX_OVERHEAD as usize;
     let mut dest = vec![0u8; max_out];
 
     internal::compress_extended(
@@ -103,7 +103,7 @@ pub fn blosc2_compress(src: &[u8]) -> Result<Vec<u8>, BloscError> {
 /// Returns the decompressed bytes on success.
 pub fn blosc2_decompress(src: &[u8]) -> Result<Vec<u8>, BloscError> {
     let (nbytes, _, _) = blosc2_cbuffer_sizes(src);
-    if nbytes == 0 && src.len() < BLOSC_MIN_HEADER_LENGTH {
+    if nbytes == 0 && src.len() < BLOSC_MIN_HEADER_LENGTH as usize {
         return Err(BloscError::InvalidHeader);
     }
 

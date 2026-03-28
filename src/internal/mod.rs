@@ -64,8 +64,8 @@ fn create_header_blosc1(
     typesize: usize,
     flags: u8,
     compressor: u8,
-) -> [u8; BLOSC_MIN_HEADER_LENGTH] {
-    let mut header = [0u8; BLOSC_MIN_HEADER_LENGTH];
+) -> [u8; BLOSC_MIN_HEADER_LENGTH as usize] {
+    let mut header = [0u8; BLOSC_MIN_HEADER_LENGTH as usize];
     header[0] = BLOSC1_VERSION_FORMAT;
     header[1] = 1; // Version for compressor (e.g., 1 for blosclz)
     header[2] = flags | (compcode_to_compformat(compressor, true) << 5);
@@ -85,8 +85,8 @@ fn create_header_blosc2(
     compressor: u8,
     filters: &[u8; 6],
     filters_meta: &[u8; 6],
-) -> [u8; BLOSC_EXTENDED_HEADER_LENGTH] {
-    let mut header = [0u8; BLOSC_EXTENDED_HEADER_LENGTH];
+) -> [u8; BLOSC_EXTENDED_HEADER_LENGTH as usize] {
+    let mut header = [0u8; BLOSC_EXTENDED_HEADER_LENGTH as usize];
     // First 16 bytes: standard Blosc header
     header[0] = BLOSC2_VERSION_FORMAT_STABLE;
     header[1] = 1; // Version for compressor (e.g., 1 for blosclz)
@@ -191,8 +191,8 @@ fn compute_blocksize(
     // Check splitmode using the initial blocksize (= nbytes), matching C behavior
     let splitmode = split_block(compressor, clevel, typesize, blocksize, filter_flags, extended_header);
 
-    if nbytes >= L1 {
-        blocksize = L1;
+    if nbytes >= L1 as usize {
+        blocksize = L1 as usize;
 
         let is_hcr = match compressor {
             BLOSC_LZ4HC | BLOSC_ZLIB | BLOSC_ZSTD => true,
@@ -284,7 +284,7 @@ fn split_block_blosc2(
         _ => false,
     };
 
-    split && (typesize <= 16) && (blocksize / typesize >= BLOSC_MIN_BUFFERSIZE)
+    split && (typesize <= 16) && (blocksize / typesize >= BLOSC_MIN_BUFFERSIZE as usize)
 }
 
 /// Blosc1 split logic (c-blosc blosc.c): FORWARD_COMPAT_SPLIT mode, no shuffle check.
@@ -295,7 +295,7 @@ fn split_block_blosc1(
 ) -> bool {
     (compressor != BLOSC_ZSTD)
         && (typesize <= 16)
-        && (blocksize / typesize >= BLOSC_MIN_BUFFERSIZE)
+        && (blocksize / typesize >= BLOSC_MIN_BUFFERSIZE as usize)
 }
 
 fn split_block(
@@ -337,10 +337,10 @@ fn compress_internal(
         (nbytes + blocksize - 1) / blocksize
     };
 
-    let header_len = if extended_header {
-        BLOSC_EXTENDED_HEADER_LENGTH
+    let header_len: usize = if extended_header {
+        BLOSC_EXTENDED_HEADER_LENGTH as usize
     } else {
-        BLOSC_MIN_HEADER_LENGTH
+        BLOSC_MIN_HEADER_LENGTH as usize
     };
 
     // Header flags: for extended header, both DOSHUFFLE and DOBITSHUFFLE are set as a marker
@@ -355,7 +355,7 @@ fn compress_internal(
     if !split {
         // For blosc2, only set dont_split when clevel > 0 (matching C blosc2 stune.c)
         // For blosc1, always set dont_split when not splitting (matching C blosc1 write_compression_header)
-        if !extended_header || (clevel != 0 && nbytes >= BLOSC_MIN_BUFFERSIZE) {
+        if !extended_header || (clevel != 0 && nbytes >= BLOSC_MIN_BUFFERSIZE as usize) {
             flags |= 0x10;
         }
     }
@@ -516,10 +516,10 @@ fn compress_internal(
             filters,
             filters_meta,
         );
-        dest[0..BLOSC_EXTENDED_HEADER_LENGTH].copy_from_slice(&header);
+        dest[0..BLOSC_EXTENDED_HEADER_LENGTH as usize].copy_from_slice(&header);
     } else {
         let header = create_header_blosc1(nbytes, blocksize, cbytes, typesize, flags, compressor);
-        dest[0..BLOSC_MIN_HEADER_LENGTH].copy_from_slice(&header);
+        dest[0..BLOSC_MIN_HEADER_LENGTH as usize].copy_from_slice(&header);
     }
 
     Ok(cbytes)
@@ -533,19 +533,19 @@ fn compress_internal(
 ///
 /// Returns the number of decompressed bytes written to `dest`.
 pub fn decompress(src: &[u8], dest: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-    if src.len() < BLOSC_MIN_HEADER_LENGTH {
+    if src.len() < BLOSC_MIN_HEADER_LENGTH as usize {
         return Err("Source buffer too small for header".into());
     }
 
     // Read version to determine header size
     let version = src[0];
-    let header_len = if version == BLOSC2_VERSION_FORMAT_STABLE
+    let header_len: usize = if version == BLOSC2_VERSION_FORMAT_STABLE
         || version == BLOSC2_VERSION_FORMAT_BETA1
         || version == BLOSC2_VERSION_FORMAT_ALPHA
     {
-        BLOSC_EXTENDED_HEADER_LENGTH
+        BLOSC_EXTENDED_HEADER_LENGTH as usize
     } else {
-        BLOSC_MIN_HEADER_LENGTH
+        BLOSC_MIN_HEADER_LENGTH as usize
     };
 
     if src.len() < header_len {
@@ -559,7 +559,7 @@ pub fn decompress(src: &[u8], dest: &mut [u8]) -> Result<usize, Box<dyn std::err
     }
 
     let flags = src[2];
-    let is_blosc1 = header_len == BLOSC_MIN_HEADER_LENGTH;
+    let is_blosc1 = header_len == BLOSC_MIN_HEADER_LENGTH as usize;
     // Flags byte bits 5-7 store compformat, not compcode
     let compressor = if !is_blosc1 {
         // Extended header byte 22 has the actual compressor code
@@ -805,23 +805,23 @@ pub fn decompress(src: &[u8], dest: &mut [u8]) -> Result<usize, Box<dyn std::err
 /// This avoids decompressing the entire buffer when only a subset of elements is
 /// needed. Returns the number of bytes written to `dest`.
 pub fn getitem(src: &[u8], start: usize, nitems: usize, dest: &mut [u8]) -> Result<usize, i32> {
-    if src.len() < BLOSC_MIN_HEADER_LENGTH {
+    if src.len() < BLOSC_MIN_HEADER_LENGTH as usize {
         return Err(-1);
     }
 
     // Check version to determine header size
     let version = src[0];
-    let header_len = if version == BLOSC2_VERSION_FORMAT_STABLE
+    let header_len: usize = if version == BLOSC2_VERSION_FORMAT_STABLE
         || version == BLOSC2_VERSION_FORMAT_BETA1
         || version == BLOSC2_VERSION_FORMAT_ALPHA
     {
-        BLOSC_EXTENDED_HEADER_LENGTH
+        BLOSC_EXTENDED_HEADER_LENGTH as usize
     } else {
-        BLOSC_MIN_HEADER_LENGTH
+        BLOSC_MIN_HEADER_LENGTH as usize
     };
 
     let flags = src[2];
-    let is_blosc1 = header_len == BLOSC_MIN_HEADER_LENGTH;
+    let is_blosc1 = header_len == BLOSC_MIN_HEADER_LENGTH as usize;
     // Flags byte bits 5-7 store compformat, not compcode
     let compressor = if !is_blosc1 {
         src[22]

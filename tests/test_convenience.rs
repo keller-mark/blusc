@@ -217,7 +217,7 @@ fn convenience_blosc1_compress_then_api_blosc1_decompress() {
 #[test]
 fn api_blosc1_compress_then_convenience_blosc1_decompress() {
     let src = sequential(10_000);
-    let mut dest = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD];
+    let mut dest = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD as usize];
     let n = api_blosc1_compress(5, BLOSC_SHUFFLE as i32, 8, &src, &mut dest);
     assert!(n > 0, "api_blosc1_compress failed: {}", n);
     dest.truncate(n as usize);
@@ -236,7 +236,7 @@ fn convenience_blosc2_compress_then_api_blosc2_decompress() {
 #[test]
 fn api_blosc2_compress_then_convenience_blosc2_decompress() {
     let src = sequential(10_000);
-    let mut dest = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD];
+    let mut dest = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD as usize];
     let n = api_blosc2_compress(5, BLOSC_SHUFFLE as i32, 8, &src, &mut dest);
     assert!(n > 0, "api_blosc2_compress failed: {}", n);
     dest.truncate(n as usize);

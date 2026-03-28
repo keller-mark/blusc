@@ -57,7 +57,7 @@ fn bitshuffle_leftovers_typesize4() {
     let mut src = vec![0u8; buffer_size];
     fill_buffer(&mut src, typesize);
 
-    let dest_size = buffer_size + BLOSC2_MAX_OVERHEAD;
+    let dest_size = buffer_size + BLOSC2_MAX_OVERHEAD as usize;
     let mut compressed = vec![0u8; dest_size];
     let csize = blusc_blosc2_compress(9, BLOSC_BITSHUFFLE as i32, typesize, &src, &mut compressed);
     assert!(
@@ -89,7 +89,7 @@ fn bitshuffle_leftovers_typesize8() {
     let mut src = vec![0u8; buffer_size];
     fill_buffer(&mut src, typesize);
 
-    let dest_size = buffer_size + BLOSC2_MAX_OVERHEAD;
+    let dest_size = buffer_size + BLOSC2_MAX_OVERHEAD as usize;
     let mut compressed = vec![0u8; dest_size];
     let csize = blusc_blosc2_compress(9, BLOSC_BITSHUFFLE as i32, typesize, &src, &mut compressed);
     assert!(
@@ -127,7 +127,7 @@ fn bitshuffle_leftovers_various_sizes() {
                 *byte = (i % 251) as u8; // Use prime modulus for variety
             }
 
-            let dest_size = size + BLOSC2_MAX_OVERHEAD;
+            let dest_size = size + BLOSC2_MAX_OVERHEAD as usize;
             let mut compressed = vec![0u8; dest_size];
             let csize =
                 blusc_blosc2_compress(5, BLOSC_BITSHUFFLE as i32, typesize, &src, &mut compressed);
@@ -164,7 +164,7 @@ fn bitshuffle_leftovers_cross_validate() {
         let mut src = vec![0u8; size];
         fill_buffer(&mut src, typesize);
 
-        let dest_size = size + BLOSC2_MAX_OVERHEAD;
+        let dest_size = size + BLOSC2_MAX_OVERHEAD as usize;
         let mut compressed_blusc = vec![0u8; dest_size];
         let csize_blusc = blusc_blosc2_compress(
             clevel,
@@ -226,7 +226,7 @@ fn bitshuffle_leftovers_context_api() {
         cparams.filters[BLOSC2_MAX_FILTERS as usize - 1] = BLOSC_BITSHUFFLE;
         let cctx = blusc_blosc2_create_cctx(cparams);
 
-        let dest_size = buffer_size + BLOSC2_MAX_OVERHEAD;
+        let dest_size = buffer_size + BLOSC2_MAX_OVERHEAD as usize;
         let mut compressed = vec![0u8; dest_size];
         let csize = blusc_blosc2_compress_ctx(&cctx, &src, &mut compressed);
         assert!(

@@ -52,7 +52,7 @@ fn context_compress_decompress_i32() {
     cparams.clevel = 5;
     let cctx = blusc_blosc2_create_cctx(cparams);
 
-    let mut compressed = vec![0u8; isize + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; isize + BLOSC2_MAX_OVERHEAD as usize];
     let csize = blusc_blosc2_compress_ctx(&cctx, src_bytes, &mut compressed);
     assert!(csize > 0, "Context compression failed: csize={}", csize);
     assert!((csize as usize) < isize, "Data should compress");
@@ -96,7 +96,7 @@ fn context_blusc_compress_c_decompress() {
     cparams.clevel = 5;
     let cctx = blusc_blosc2_create_cctx(cparams);
 
-    let mut compressed = vec![0u8; isize + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; isize + BLOSC2_MAX_OVERHEAD as usize];
     let csize = blusc_blosc2_compress_ctx(&cctx, src_bytes, &mut compressed);
     assert!(csize > 0, "blusc compression failed");
     compressed.truncate(csize as usize);
@@ -125,7 +125,7 @@ fn context_c_compress_blusc_decompress() {
     let isize = SIZE * std::mem::size_of::<i32>();
 
     // Compress with C
-    let mut compressed = vec![0u8; isize + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; isize + BLOSC2_MAX_OVERHEAD as usize];
     let csize = unsafe {
         let mut cparams = BOUND_BLOSC2_CPARAMS_DEFAULTS;
         cparams.typesize = 4;
@@ -172,7 +172,7 @@ fn context_clevels() {
         cparams.clevel = clevel;
         let cctx = blusc_blosc2_create_cctx(cparams);
 
-        let mut compressed = vec![0u8; isize + BLOSC2_MAX_OVERHEAD];
+        let mut compressed = vec![0u8; isize + BLOSC2_MAX_OVERHEAD as usize];
         let csize = blusc_blosc2_compress_ctx(&cctx, src_bytes, &mut compressed);
         assert!(csize > 0, "Compression failed at clevel={}", clevel);
         compressed.truncate(csize as usize);
@@ -211,7 +211,7 @@ fn context_bitshuffle() {
     cparams.clevel = 5;
     let cctx = blusc_blosc2_create_cctx(cparams);
 
-    let mut compressed = vec![0u8; isize + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; isize + BLOSC2_MAX_OVERHEAD as usize];
     let csize = blusc_blosc2_compress_ctx(&cctx, src_bytes, &mut compressed);
     assert!(csize > 0, "Bitshuffle compression failed");
     compressed.truncate(csize as usize);

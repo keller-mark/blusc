@@ -57,7 +57,7 @@ fn run_compressor_roundtrip(
     cparams.clevel = clevel;
     let cctx = blusc_blosc2_create_cctx(cparams);
 
-    let mut compressed = vec![0u8; buffer_size + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; buffer_size + BLOSC2_MAX_OVERHEAD as usize];
     let csize = blusc_blosc2_compress_ctx(&cctx, &src, &mut compressed);
     assert!(
         csize > 0,
@@ -110,7 +110,7 @@ fn run_cross_validate_blusc_to_c(
     cparams.clevel = clevel;
     let cctx = blusc_blosc2_create_cctx(cparams);
 
-    let mut compressed = vec![0u8; buffer_size + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; buffer_size + BLOSC2_MAX_OVERHEAD as usize];
     let csize = blusc_blosc2_compress_ctx(&cctx, &src, &mut compressed);
     assert!(csize > 0, "{} blusc compression failed", comp_name);
     compressed.truncate(csize as usize);
@@ -164,7 +164,7 @@ fn run_cross_validate_c_to_blusc(
     }
 
     // Compress with C
-    let mut compressed = vec![0u8; buffer_size + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; buffer_size + BLOSC2_MAX_OVERHEAD as usize];
     let csize = unsafe {
         let mut cparams = BOUND_BLOSC2_CPARAMS_DEFAULTS;
         cparams.typesize = typesize;
@@ -354,7 +354,7 @@ fn snappy_noshuffle_clevel4_blocksize0() {
     cparams.filters[5] = 0; // noshuffle
     let cctx = blusc_blosc2_create_cctx(cparams);
 
-    let mut compressed = vec![0u8; buffer_size + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; buffer_size + BLOSC2_MAX_OVERHEAD as usize];
     let csize = blusc_blosc2_compress_ctx(&cctx, &src, &mut compressed);
     assert!(
         csize > 0,
@@ -396,7 +396,7 @@ fn snappy_noshuffle_clevel4_blocksize0_typesize0() {
     cparams.filters[5] = 0; // noshuffle
     let cctx = blusc_blosc2_create_cctx(cparams);
 
-    let mut compressed = vec![0u8; buffer_size + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; buffer_size + BLOSC2_MAX_OVERHEAD as usize];
     let csize = blusc_blosc2_compress_ctx(&cctx, &src, &mut compressed);
     assert!(
         csize > 0,

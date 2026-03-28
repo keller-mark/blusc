@@ -105,7 +105,7 @@ pub const BLOSC2_DPARAMS_DEFAULTS: Blosc2Dparams = Blosc2Dparams {
 ///
 /// Returns `Some((typesize, flags))` on success, or `None` if the buffer is too short.
 pub fn blosc1_cbuffer_metainfo(cbuffer: &[u8]) -> Option<(usize, i32)> {
-    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH {
+    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH as usize {
         return None;
     }
     let ts = cbuffer[3] as usize;
@@ -119,7 +119,7 @@ pub fn blosc1_cbuffer_metainfo(cbuffer: &[u8]) -> Option<(usize, i32)> {
 ///
 /// Returns the uncompressed size on success.
 pub fn blosc1_cbuffer_validate(cbuffer: &[u8], cbytes: usize) -> Result<usize, ()> {
-    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH {
+    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH as usize {
         return Err(());
     }
 
@@ -343,7 +343,7 @@ pub fn blosc2_compress_ctx(context: &Blosc2Context, src: &[u8], dest: &mut [u8])
 ///
 /// Returns `(0, 0, 0)` if the buffer is too short to contain a valid header.
 pub fn blosc2_cbuffer_sizes(cbuffer: &[u8]) -> (usize, usize, usize) {
-    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH {
+    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH as usize {
         return (0, 0, 0);
     }
     let nb = u32::from_le_bytes([cbuffer[4], cbuffer[5], cbuffer[6], cbuffer[7]]) as usize;

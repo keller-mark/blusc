@@ -19,7 +19,7 @@ mod tests {
             (1, 8000, 9, 1),
         ] {
             let buffer_size = ts * ne;
-            let dest_size = buffer_size + BLOSC2_MAX_OVERHEAD;
+            let dest_size = buffer_size + BLOSC2_MAX_OVERHEAD as usize;
             let mut original = vec![0u8; buffer_size];
             for (k, byte) in original.iter_mut().enumerate() {
                 *byte = k as u8;

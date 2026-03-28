@@ -10,7 +10,7 @@
 //! use blusc::{blosc2_compress, blosc2_decompress, BLOSC_SHUFFLE, BLOSC2_MAX_OVERHEAD};
 //!
 //! let input: Vec<u8> = vec![0u8; 1024];
-//! let mut compressed = vec![0u8; input.len() + BLOSC2_MAX_OVERHEAD];
+//! let mut compressed = vec![0u8; input.len() + BLOSC2_MAX_OVERHEAD as usize];
 //! let cbytes = blosc2_compress(5, BLOSC_SHUFFLE as i32, 4, &input, &mut compressed);
 //!
 //! let mut output = vec![0u8; 1024];

@@ -30,7 +30,7 @@ fn blosc2_cleanup() {
 #[test]
 fn empty_buffer_compress() {
     let src: Vec<u8> = vec![];
-    let mut compressed = vec![0u8; BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; BLOSC2_MAX_OVERHEAD as usize];
 
     // Compress empty buffer with blusc
     let csize = blusc_blosc2_compress(3, 0, 1, &src, &mut compressed);
@@ -41,7 +41,7 @@ fn empty_buffer_compress() {
     );
 
     // Compress with C reference and compare
-    let mut c_compressed = vec![0u8; BLOSC2_MAX_OVERHEAD];
+    let mut c_compressed = vec![0u8; BLOSC2_MAX_OVERHEAD as usize];
     let c_csize = unsafe {
         bound_blosc2_compress(
             3,
@@ -73,7 +73,7 @@ fn empty_buffer_compress() {
 #[test]
 fn empty_buffer_roundtrip() {
     let src: Vec<u8> = vec![];
-    let mut compressed = vec![0u8; BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; BLOSC2_MAX_OVERHEAD as usize];
 
     let csize = blusc_blosc2_compress(3, 0, 1, &src, &mut compressed);
     assert!(csize > 0);
@@ -88,7 +88,7 @@ fn empty_buffer_roundtrip() {
 #[test]
 fn single_byte_buffer() {
     let src = vec![42u8];
-    let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD];
+    let mut compressed = vec![0u8; src.len() + BLOSC2_MAX_OVERHEAD as usize];
 
     let csize = blusc_blosc2_compress(5, 0, 1, &src, &mut compressed);
     assert!(csize > 0, "Single byte compression failed");
@@ -105,7 +105,7 @@ fn single_byte_buffer() {
 fn small_buffer_sizes_cross_validate() {
     for size in [0, 1, 2, 3, 4, 7, 8, 15, 16, 31, 32, 33, 63, 64] {
         let src: Vec<u8> = (0..size as u8).collect();
-        let dest_size = src.len() + BLOSC2_MAX_OVERHEAD;
+        let dest_size = src.len() + BLOSC2_MAX_OVERHEAD as usize;
 
         let mut compressed_blusc = vec![0u8; dest_size];
         let csize_blusc = blusc_blosc2_compress(5, 0, 1, &src, &mut compressed_blusc);

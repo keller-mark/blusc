@@ -45,7 +45,7 @@ fn fill_seq(buf: &mut [u8]) {
 /// with the C blosc2 reference implementation.
 fn run_compress_roundtrip(type_size: usize, num_elements: usize, clevel: i32, doshuffle: i32) {
     let buffer_size = type_size * num_elements;
-    let dest_size = buffer_size + BLOSC2_MAX_OVERHEAD;
+    let dest_size = buffer_size + BLOSC2_MAX_OVERHEAD as usize;
 
     let mut original = vec![0u8; buffer_size];
     fill_seq(&mut original);
