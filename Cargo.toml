@@ -1,6 +1,6 @@
 [package]
 name = "blusc"
-version = "0.0.2"
+version = "0.0.3"
 authors = ["Mark Keller <markkellerweb+git@gmail.com>"]
 edition = "2021"
 license = "BSD-3-Clause"
