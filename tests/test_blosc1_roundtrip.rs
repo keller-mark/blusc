@@ -16,6 +16,7 @@ use blosc_src::{
     BLOSC_BLOSCLZ_COMPNAME,
     BLOSC_LZ4_COMPNAME,
     BLOSC_LZ4HC_COMPNAME,
+    BLOSC_SNAPPY_COMPNAME,
     BLOSC_ZLIB_COMPNAME,
     BLOSC_ZSTD_COMPNAME,
 };
@@ -28,6 +29,7 @@ use blusc::{
     BLOSC_BLOSCLZ as BLUSC_BLOSCLZ,
     BLOSC_LZ4 as BLUSC_LZ4,
     BLOSC_LZ4HC as BLUSC_LZ4HC,
+    BLOSC_SNAPPY as BLUSC_SNAPPY,
     BLOSC_ZLIB as BLUSC_ZLIB,
     BLOSC_ZSTD as BLUSC_ZSTD,
     BLOSC_NOSHUFFLE as BLUSC_NOSHUFFLE,
@@ -68,6 +70,7 @@ fn compcode_to_compname(code: u8) -> &'static [u8] {
         0 => BLOSC_BLOSCLZ_COMPNAME,
         1 => BLOSC_LZ4_COMPNAME,
         2 => BLOSC_LZ4HC_COMPNAME,
+        3 => BLOSC_SNAPPY_COMPNAME,
         4 => BLOSC_ZLIB_COMPNAME,
         5 => BLOSC_ZSTD_COMPNAME,
         _ => panic!("Unknown compressor code: {code}"),
@@ -269,6 +272,27 @@ fn blosc1_to_blusc_lz4hc_matrix() {
 }
 
 #[test]
+fn blosc1_to_blusc_snappy_matrix() {
+    let typesizes = [1, 4, 8];
+    let shuffles = [
+        BOUND_BLOSC1_NOSHUFFLE as i32,
+        BOUND_BLOSC1_SHUFFLE as i32,
+    ];
+    let clevels = [1, 5, 9];
+    let num_elements_list = [192, 8000];
+
+    for &typesize in &typesizes {
+        for &doshuffle in &shuffles {
+            for &clevel in &clevels {
+                for &num_elements in &num_elements_list {
+                    blosc1_to_blusc(BLUSC_SNAPPY, clevel, doshuffle, typesize, num_elements);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn blosc1_to_blusc_zlib_matrix() {
     let typesizes = [1, 4, 8];
     let shuffles = [
@@ -373,6 +397,27 @@ fn blusc_to_blosc1_lz4hc_matrix() {
             for &clevel in &clevels {
                 for &num_elements in &num_elements_list {
                     blusc_to_blosc1(BLUSC_LZ4HC, clevel, doshuffle, typesize, num_elements);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn blusc_to_blosc1_snappy_matrix() {
+    let typesizes = [1, 4, 8];
+    let shuffles = [
+        BLUSC_NOSHUFFLE as i32,
+        BLUSC_SHUFFLE as i32,
+    ];
+    let clevels = [1, 5, 9];
+    let num_elements_list = [192, 8000];
+
+    for &typesize in &typesizes {
+        for &doshuffle in &shuffles {
+            for &clevel in &clevels {
+                for &num_elements in &num_elements_list {
+                    blusc_to_blosc1(BLUSC_SNAPPY, clevel, doshuffle, typesize, num_elements);
                 }
             }
         }

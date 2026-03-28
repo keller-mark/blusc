@@ -34,4 +34,4 @@ ctor = "0.2"
 
 # Testing with same version of blosc-src used in zarrs
 # Reference: https://github.com/zarrs/zarrs/blob/9a8a79e72f2220e8c07269e77769e2f3419c9cd3/zarrs/Cargo.toml#L52
-blosc-src = { version = "0.3.6", features = ["lz4", "zlib", "zstd"] }
+blosc-src = { version = "0.3.6", features = ["snappy", "lz4", "zlib", "zstd"] }

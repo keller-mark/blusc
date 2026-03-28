@@ -11,6 +11,7 @@ use blosc_src::{
     BLOSC_BLOSCLZ_COMPNAME,
     BLOSC_LZ4_COMPNAME,
     BLOSC_LZ4HC_COMPNAME,
+    BLOSC_SNAPPY_COMPNAME,
     BLOSC_ZLIB_COMPNAME,
     BLOSC_ZSTD_COMPNAME,
 };
@@ -236,6 +237,42 @@ fn blosc1_compress_ctx_blusc_decompress_lz4hc() {
         )
     };
     assert!(csize > 0, "blosc1 compress_ctx (lz4hc) failed: {csize}");
+    compressed.truncate(csize as usize);
+
+    let mut result = vec![0i32; src.len()];
+    let result_bytes = unsafe {
+        std::slice::from_raw_parts_mut(result.as_mut_ptr() as *mut u8, result.len() * typesize)
+    };
+    let dsize = blusc_blosc2_decompress(&compressed, result_bytes);
+    assert!(dsize > 0, "blusc decompression failed: {dsize}");
+
+    assert_eq!(src, result);
+}
+
+#[test]
+fn blosc1_compress_ctx_blusc_decompress_snappy() {
+    let src: Vec<i32> = (0..5000).map(|i| (i * 127 - 2500) as i32).collect();
+    let typesize = std::mem::size_of::<i32>();
+    let src_bytes = unsafe {
+        std::slice::from_raw_parts(src.as_ptr() as *const u8, src.len() * typesize)
+    };
+
+    let mut compressed = vec![0u8; src_bytes.len() + BOUND_BLOSC1_MAX_OVERHEAD as usize];
+    let csize = unsafe {
+        bound_blosc1_compress_ctx(
+            5,
+            BOUND_BLOSC1_SHUFFLE as _,
+            typesize,
+            src_bytes.len(),
+            src_bytes.as_ptr().cast(),
+            compressed.as_mut_ptr().cast(),
+            compressed.len(),
+            BLOSC_SNAPPY_COMPNAME.as_ptr().cast(),
+            0,
+            1,
+        )
+    };
+    assert!(csize > 0, "blosc1 compress_ctx (snappy) failed: {csize}");
     compressed.truncate(csize as usize);
 
     let mut result = vec![0i32; src.len()];
