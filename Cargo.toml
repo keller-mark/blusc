@@ -18,8 +18,8 @@ description = "Rust implementation of blosc compression, port of c-blosc2"
 crate-type = ["lib"]
 
 [dependencies]
-lz4_flex = "0.12.0"
-zstd = "0.13"
+lz4_flex = "~0.12.0"
+zstd = "~0.13.0"
 flate2 = "^1.1.1"
 snap = "^1.1.1"
 
