@@ -1,6 +1,6 @@
 [package]
 name = "blusc"
-version = "0.0.5"
+version = "0.0.6"
 authors = ["Mark Keller <markkellerweb+git@gmail.com>"]
 edition = "2021"
 rust-version = "1.91"

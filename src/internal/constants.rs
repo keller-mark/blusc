@@ -80,6 +80,10 @@ pub const L2: usize = 256 * 1024;
 /// Maximum block size in bytes.
 pub const BLOSC_MAX_BLOCKSIZE: usize = BLOSC2_MAX_BUFFERSIZE;
 
+// Not used here, but exported for compatibility reasons.
+// Reference: https://github.com/mulimoen/rust-blosc-src/blob/8fb7864e2b2ce03dff400e444bf34005c0447357/src/bindgen.rs#L20
+pub const BLOSC_MAX_THREADS: u32 = 256;
+
 // Tuner ID ranges
 
 /// Start of Blosc-defined tuner IDs.
