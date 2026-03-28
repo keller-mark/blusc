@@ -21,3 +21,20 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose -- --test-threads=1
+
+  check-msrv:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: "1.91"
+    # Reference: https://github.com/zarrs/zarrs/blob/9a8a79e72f2220e8c07269e77769e2f3419c9cd3/.github/workflows/ci.yml#L179
+    - run: cargo install cargo-hack cargo-minimal-versions --locked
+    - run: cargo minimal-versions check --all-features
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose -- --test-threads=1

@@ -157,6 +157,71 @@ pub fn blosc1_getitem(cbuffer: &[u8], start: i32, nitems: i32, dest: &mut [u8]) 
     }
 }
 
+/// Compresses `src` into `dest` using Blosc1 format (16-byte header, version 2).
+///
+/// This produces output compatible with the C blosc v1 library (`blosc_compress`).
+///
+/// - `clevel`: compression level (0–9).
+/// - `doshuffle`: shuffle mode ([`BLOSC_NOSHUFFLE`], [`BLOSC_SHUFFLE`], or [`BLOSC_BITSHUFFLE`]).
+/// - `typesize`: element size in bytes (used by shuffle filters).
+///
+/// `dest` must be at least `src.len() + BLOSC_MIN_HEADER_LENGTH` bytes.
+/// Returns the number of compressed bytes written, or 0 on error.
+pub fn blosc1_compress(
+    clevel: i32,
+    doshuffle: i32,
+    typesize: usize,
+    src: &[u8],
+    dest: &mut [u8],
+) -> i32 {
+    let compressor = BLOSC_BLOSCLZ;
+
+    match internal::compress(clevel, doshuffle, typesize, src, dest, compressor) {
+        Ok(size) => size as i32,
+        Err(_) => 0,
+    }
+}
+
+/// Compresses `src` into `dest` using Blosc1 format with the codec specified in `context`.
+///
+/// This produces output compatible with the C blosc v1 library (`blosc_compress_ctx`).
+///
+/// Returns the number of compressed bytes written, or 0 on error.
+pub fn blosc1_compress_ctx(context: &Blosc2Context, src: &[u8], dest: &mut [u8]) -> i32 {
+    let clevel = context.cparams.clevel as i32;
+    let typesize = context.cparams.typesize as usize;
+    let compressor = context.cparams.compcode;
+
+    let mut doshuffle = BLOSC_NOSHUFFLE as i32;
+    for &f in context.cparams.filters.iter() {
+        if f == BLOSC_SHUFFLE {
+            doshuffle = BLOSC_SHUFFLE as i32;
+        }
+        if f == BLOSC_BITSHUFFLE {
+            doshuffle = BLOSC_BITSHUFFLE as i32;
+        }
+    }
+
+    match internal::compress(clevel, doshuffle, typesize, src, dest, compressor) {
+        Ok(size) => size as i32,
+        Err(_) => 0,
+    }
+}
+
+/// Decompresses a Blosc1 or Blosc2 compressed buffer.
+///
+/// This is functionally identical to [`blosc2_decompress`] — both formats are
+/// auto-detected from the header version byte.
+///
+/// `dest` must be large enough to hold the uncompressed data (see [`blosc1_cbuffer_sizes`]).
+/// Returns the number of decompressed bytes, or -1 on error.
+pub fn blosc1_decompress(src: &[u8], dest: &mut [u8]) -> i32 {
+    match internal::decompress(src, dest) {
+        Ok(size) => size as i32,
+        Err(_) => -1,
+    }
+}
+
 /// Looks up information about a compression library by its name (e.g. `"blosclz"`, `"lz4"`).
 ///
 /// Returns `Some((library_name, version_string, library_code))` or `None` if unknown.

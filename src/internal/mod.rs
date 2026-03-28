@@ -6,28 +6,54 @@ use std::io::Write;
 pub mod constants;
 
 /// Convert compressor code to compressor format (for header flags byte).
-/// Matches C's compcode_to_compformat().
-fn compcode_to_compformat(compcode: u8) -> u8 {
+///
+/// Blosc1 headers store `BLOSC_SNAPPY_LIB` (2) for snappy, while blosc2 extended
+/// headers store the raw compcode in byte 22 and the format field is less critical.
+/// Pass `is_blosc1 = true` when writing a 16-byte blosc1 header.
+fn compcode_to_compformat(compcode: u8, is_blosc1: bool) -> u8 {
     match compcode {
         BLOSC_BLOSCLZ => BLOSC_BLOSCLZ_FORMAT,
         BLOSC_LZ4 => BLOSC_LZ4_FORMAT,
         BLOSC_LZ4HC => BLOSC_LZ4HC_FORMAT,
-        BLOSC_SNAPPY => BLOSC_SNAPPY, // Snappy has no separate format constant, code == 3
+        BLOSC_SNAPPY => {
+            if is_blosc1 {
+                BLOSC_SNAPPY_FORMAT // 2 (BLOSC_SNAPPY_LIB in blosc1)
+            } else {
+                BLOSC_SNAPPY // 3 (no separate lib code in blosc2)
+            }
+        }
         BLOSC_ZLIB => BLOSC_ZLIB_FORMAT,
         BLOSC_ZSTD => BLOSC_ZSTD_FORMAT,
-        _ => compcode, // fallback
+        _ => compcode,
     }
 }
 
 /// Convert compressor format (from header flags byte) back to compressor code.
-/// Inverse of compcode_to_compformat for decompression dispatch.
-fn compformat_to_compcode(compformat: u8) -> u8 {
-    match compformat {
-        BLOSC_BLOSCLZ_FORMAT => BLOSC_BLOSCLZ, // 0 → 0
-        BLOSC_LZ4_FORMAT => BLOSC_LZ4,         // 1 → 1 (also LZ4HC, but decompressor is same)
-        BLOSC_ZLIB_FORMAT => BLOSC_ZLIB,       // 3 → 4
-        BLOSC_ZSTD_FORMAT => BLOSC_ZSTD,       // 4 → 5
-        _ => compformat,                       // fallback (e.g. Snappy: 3 == 3)
+///
+/// Blosc1 headers store the compressor *library* code directly in flags bits 5–7
+/// (BLOSC_SNAPPY_LIB=2, BLOSC_ZLIB_LIB=3, …).  Blosc2 extended headers store the
+/// same field but disambiguate via the explicit compcode in byte 22, so this
+/// function is only needed for the blosc1 path.
+fn compformat_to_compcode(compformat: u8, is_blosc1: bool) -> u8 {
+    if is_blosc1 {
+        match compformat {
+            BLOSC_BLOSCLZ_FORMAT => BLOSC_BLOSCLZ, // 0 → 0
+            BLOSC_LZ4_FORMAT => BLOSC_LZ4,         // 1 → 1 (also LZ4HC)
+            BLOSC_SNAPPY_FORMAT => BLOSC_SNAPPY,   // 2 → 3 (blosc1: SNAPPY_LIB=2)
+            BLOSC_ZLIB_FORMAT => BLOSC_ZLIB,       // 3 → 4
+            BLOSC_ZSTD_FORMAT => BLOSC_ZSTD,       // 4 → 5
+            _ => compformat,
+        }
+    } else {
+        // Blosc2 non-extended headers are not expected in practice (byte 22 is
+        // authoritative), but provide a best-effort mapping as a fallback.
+        match compformat {
+            BLOSC_BLOSCLZ_FORMAT => BLOSC_BLOSCLZ,
+            BLOSC_LZ4_FORMAT => BLOSC_LZ4,
+            BLOSC_ZLIB_FORMAT => BLOSC_ZLIB,
+            BLOSC_ZSTD_FORMAT => BLOSC_ZSTD,
+            _ => compformat,
+        }
     }
 }
 
@@ -42,7 +68,7 @@ fn create_header_blosc1(
     let mut header = [0u8; BLOSC_MIN_HEADER_LENGTH];
     header[0] = BLOSC1_VERSION_FORMAT;
     header[1] = 1; // Version for compressor (e.g., 1 for blosclz)
-    header[2] = flags | (compcode_to_compformat(compressor) << 5);
+    header[2] = flags | (compcode_to_compformat(compressor, true) << 5);
     header[3] = typesize as u8;
     header[4..8].copy_from_slice(&(nbytes as u32).to_le_bytes());
     header[8..12].copy_from_slice(&(blocksize as u32).to_le_bytes());
@@ -64,7 +90,7 @@ fn create_header_blosc2(
     // First 16 bytes: standard Blosc header
     header[0] = BLOSC2_VERSION_FORMAT_STABLE;
     header[1] = 1; // Version for compressor (e.g., 1 for blosclz)
-    header[2] = flags | (compcode_to_compformat(compressor) << 5);
+    header[2] = flags | (compcode_to_compformat(compressor, false) << 5);
     header[3] = typesize as u8;
     header[4..8].copy_from_slice(&(nbytes as u32).to_le_bytes());
     header[8..12].copy_from_slice(&(blocksize as u32).to_le_bytes());
@@ -101,6 +127,13 @@ pub fn compress(
     dest: &mut [u8],
     compressor: u8,
 ) -> Result<usize, i32> {
+    let mut filters = [BLOSC_NOFILTER; 6];
+    if doshuffle == BLOSC_SHUFFLE as i32 && typesize > 1 {
+        filters[5] = BLOSC_SHUFFLE;
+    } else if doshuffle == BLOSC_BITSHUFFLE as i32 {
+        filters[5] = BLOSC_BITSHUFFLE;
+    }
+
     compress_internal(
         clevel,
         doshuffle,
@@ -109,7 +142,7 @@ pub fn compress(
         dest,
         compressor,
         false,
-        &[BLOSC_NOFILTER as u8; 6],
+        &filters,
         &[0; 6],
     )
 }
@@ -147,6 +180,7 @@ fn compute_blocksize(
     nbytes: usize,
     compressor: u8,
     filter_flags: u8,
+    extended_header: bool,
 ) -> usize {
     if nbytes < typesize {
         return nbytes.max(1);
@@ -155,7 +189,7 @@ fn compute_blocksize(
     let mut blocksize = nbytes;
 
     // Check splitmode using the initial blocksize (= nbytes), matching C behavior
-    let splitmode = split_block(compressor, clevel, typesize, blocksize, filter_flags);
+    let splitmode = split_block(compressor, clevel, typesize, blocksize, filter_flags, extended_header);
 
     if nbytes >= L1 {
         blocksize = L1;
@@ -232,14 +266,14 @@ fn filters_to_flags(filters: &[u8; 6]) -> u8 {
     flags
 }
 
-fn split_block(
+/// Blosc2 split logic (c-blosc2 stune.c): only split for byte shuffle, not bitshuffle.
+fn split_block_blosc2(
     compressor: u8,
     clevel: i32,
     typesize: usize,
     blocksize: usize,
     filter_flags: u8,
 ) -> bool {
-    // Only split for byte shuffle, NOT bitshuffle (as per c-blosc2 stune.c)
     if (filter_flags & BLOSC_DOSHUFFLE) == 0 {
         return false;
     }
@@ -251,6 +285,32 @@ fn split_block(
     };
 
     split && (typesize <= 16) && (blocksize / typesize >= BLOSC_MIN_BUFFERSIZE)
+}
+
+/// Blosc1 split logic (c-blosc blosc.c): FORWARD_COMPAT_SPLIT mode, no shuffle check.
+fn split_block_blosc1(
+    compressor: u8,
+    typesize: usize,
+    blocksize: usize,
+) -> bool {
+    (compressor != BLOSC_ZSTD)
+        && (typesize <= 16)
+        && (blocksize / typesize >= BLOSC_MIN_BUFFERSIZE)
+}
+
+fn split_block(
+    compressor: u8,
+    clevel: i32,
+    typesize: usize,
+    blocksize: usize,
+    filter_flags: u8,
+    extended_header: bool,
+) -> bool {
+    if extended_header {
+        split_block_blosc2(compressor, clevel, typesize, blocksize, filter_flags)
+    } else {
+        split_block_blosc1(compressor, typesize, blocksize)
+    }
 }
 
 fn compress_internal(
@@ -270,7 +330,7 @@ fn compress_internal(
     // Must be computed before blocksize since split_block depends on it.
     let filter_flags = filters_to_flags(filters);
 
-    let blocksize = compute_blocksize(clevel, typesize, nbytes, compressor, filter_flags);
+    let blocksize = compute_blocksize(clevel, typesize, nbytes, compressor, filter_flags, extended_header);
     let nblocks = if nbytes == 0 {
         0
     } else {
@@ -290,10 +350,14 @@ fn compress_internal(
     }
 
     // Use actual filter_flags (not header flags) for split decision, matching C behavior
-    let split = split_block(compressor, clevel, typesize, blocksize, filter_flags);
+    let split = split_block(compressor, clevel, typesize, blocksize, filter_flags, extended_header);
 
-    if !split && clevel != 0 && nbytes >= BLOSC_MIN_BUFFERSIZE {
-        flags |= 0x10;
+    if !split {
+        // For blosc2, only set dont_split when clevel > 0 (matching C blosc2 stune.c)
+        // For blosc1, always set dont_split when not splitting (matching C blosc1 write_compression_header)
+        if !extended_header || (clevel != 0 && nbytes >= BLOSC_MIN_BUFFERSIZE) {
+            flags |= 0x10;
+        }
     }
 
     // Calculate data start offset
@@ -336,7 +400,7 @@ fn compress_internal(
         // C does not split the leftover (last partial) block
         let leftoverblock = i == nblocks - 1 && (nbytes % blocksize) != 0;
         let block_split =
-            !leftoverblock && split_block(compressor, clevel, typesize, block_len, filter_flags);
+            !leftoverblock && split_block(compressor, clevel, typesize, block_len, filter_flags, extended_header);
         let nstreams = if block_split { typesize } else { 1 };
         let neblock = block_len / nstreams;
 
@@ -356,7 +420,7 @@ fn compress_internal(
                     stream_csize =
                         blosclz::compress(clevel, stream_src, &mut dest[current_dest_offset + 4..]);
                 }
-                BLOSC_LZ4 => {
+                BLOSC_LZ4 | BLOSC_LZ4HC => {
                     match lz4_flex::block::compress_into(
                         stream_src,
                         &mut dest[current_dest_offset + 4..],
@@ -495,12 +559,13 @@ pub fn decompress(src: &[u8], dest: &mut [u8]) -> Result<usize, Box<dyn std::err
     }
 
     let flags = src[2];
+    let is_blosc1 = header_len == BLOSC_MIN_HEADER_LENGTH;
     // Flags byte bits 5-7 store compformat, not compcode
-    let compressor = if header_len == BLOSC_EXTENDED_HEADER_LENGTH {
+    let compressor = if !is_blosc1 {
         // Extended header byte 22 has the actual compressor code
         src[22]
     } else {
-        compformat_to_compcode((flags >> 5) & 0x7)
+        compformat_to_compcode((flags >> 5) & 0x7, is_blosc1)
     };
     let typesize = src[3] as usize;
 
@@ -512,7 +577,7 @@ pub fn decompress(src: &[u8], dest: &mut [u8]) -> Result<usize, Box<dyn std::err
         doshuffle = false;
         dobitshuffle = false;
 
-        if header_len == BLOSC_EXTENDED_HEADER_LENGTH {
+        if !is_blosc1 {
             let filters = &src[16..22];
             for &f in filters {
                 if f == BLOSC_SHUFFLE {
@@ -756,11 +821,12 @@ pub fn getitem(src: &[u8], start: usize, nitems: usize, dest: &mut [u8]) -> Resu
     };
 
     let flags = src[2];
+    let is_blosc1 = header_len == BLOSC_MIN_HEADER_LENGTH;
     // Flags byte bits 5-7 store compformat, not compcode
-    let compressor = if header_len == BLOSC_EXTENDED_HEADER_LENGTH {
+    let compressor = if !is_blosc1 {
         src[22]
     } else {
-        compformat_to_compcode((flags >> 5) & 0x7)
+        compformat_to_compcode((flags >> 5) & 0x7, is_blosc1)
     };
     let typesize = src[3] as usize;
     let nbytes = u32::from_le_bytes(src[4..8].try_into().unwrap()) as usize;
@@ -791,7 +857,7 @@ pub fn getitem(src: &[u8], start: usize, nitems: usize, dest: &mut [u8]) -> Resu
     if (flags & BLOSC_DOSHUFFLE) != 0 && (flags & BLOSC_DOBITSHUFFLE) != 0 {
         doshuffle = false;
         dobitshuffle = false;
-        if header_len == BLOSC_EXTENDED_HEADER_LENGTH {
+        if !is_blosc1 {
             for &f in &src[16..22] {
                 if f == BLOSC_SHUFFLE {
                     doshuffle = true;
