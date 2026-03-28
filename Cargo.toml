@@ -1,6 +1,6 @@
 [package]
 name = "blusc"
-version = "0.0.2"
+version = "0.0.5"
 authors = ["Mark Keller <markkellerweb+git@gmail.com>"]
 edition = "2021"
 rust-version = "1.91"
@@ -19,8 +19,8 @@ description = "Rust implementation of blosc compression, port of c-blosc2"
 crate-type = ["lib"]
 
 [dependencies]
-lz4_flex = "0.12.0"
-zstd = "0.13"
+lz4_flex = "~0.12.0"
+zstd = "~0.13.3"
 flate2 = "^1.1.1"
 snap = "^1.1.1"
 
