@@ -24,6 +24,11 @@ zstd = "0.13"
 flate2 = "^1.1.1"
 snap = "^1.1.1"
 
+# Minimum version bumps for transitive build-deps (needed for cargo-minimal-versions check)
+# zstd-sys v2.0.7 specifies pkg-config = "0.3" which resolves to 0.3.0 (too old)
+[build-dependencies]
+pkg-config = "0.3.19"
+
 [dev-dependencies]
 # ONLY FOR TESTING THAT THE RUST IMPLEMENTATION MATCHES THE C BINDINGS
 # Reference: https://github.com/maiteko/blosc2-src-rs
