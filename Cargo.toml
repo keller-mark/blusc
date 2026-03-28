@@ -1,6 +1,6 @@
 [package]
 name = "blusc"
-version = "0.0.3"
+version = "0.0.4"
 authors = ["Mark Keller <markkellerweb+git@gmail.com>"]
 edition = "2021"
 license = "BSD-3-Clause"
@@ -19,7 +19,7 @@ crate-type = ["lib"]
 
 [dependencies]
 lz4_flex = "~0.12.0"
-zstd = "~0.13.0"
+zstd = "~0.13.3"
 flate2 = "^1.1.1"
 snap = "^1.1.1"
 
