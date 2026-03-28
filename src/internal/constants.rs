@@ -258,6 +258,8 @@ pub const BLOSC_ZSTD_COMPNAME: &str = "zstd";
 pub const BLOSC_BLOSCLZ_LIB: u8 = 0;
 /// Library code for LZ4/LZ4HC.
 pub const BLOSC_LZ4_LIB: u8 = 1;
+/// Library code for Snappy (blosc1 only; blosc2 deprecated snappy).
+pub const BLOSC_SNAPPY_LIB: u8 = 2;
 /// Library code for Zlib.
 pub const BLOSC_ZLIB_LIB: u8 = 3;
 /// Library code for Zstd.
@@ -289,6 +291,8 @@ pub const BLOSC_BLOSCLZ_FORMAT: u8 = BLOSC_BLOSCLZ_LIB;
 pub const BLOSC_LZ4_FORMAT: u8 = BLOSC_LZ4_LIB;
 /// Header format code for LZ4HC (same as LZ4).
 pub const BLOSC_LZ4HC_FORMAT: u8 = BLOSC_LZ4_LIB;
+/// Header format code for Snappy in blosc1 headers.
+pub const BLOSC_SNAPPY_FORMAT: u8 = BLOSC_SNAPPY_LIB;
 /// Header format code for Zlib.
 pub const BLOSC_ZLIB_FORMAT: u8 = BLOSC_ZLIB_LIB;
 /// Header format code for Zstd.
