@@ -1,7 +1,7 @@
 use crate::codecs::blosclz;
 use crate::filters;
 use crate::internal::constants::*;
-use std::io::Write;
+use std::io::{Read, Write};
 
 pub mod constants;
 
@@ -454,18 +454,26 @@ fn compress_internal(
                     }
                 }
                 BLOSC_ZSTD => {
-                    let cursor = std::io::Cursor::new(&mut dest[current_dest_offset + 4..]);
-                    let mut encoder =
-                        zstd::stream::write::Encoder::new(cursor, clevel).map_err(|_| -1)?;
-                    if encoder.write_all(stream_src).is_ok() {
-                        match encoder.finish() {
-                            Ok(cursor) => {
-                                stream_csize = cursor.position() as usize;
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        let cursor = std::io::Cursor::new(&mut dest[current_dest_offset + 4..]);
+                        let mut encoder =
+                            zstd::stream::write::Encoder::new(cursor, clevel).map_err(|_| -1)?;
+                        if encoder.write_all(stream_src).is_ok() {
+                            match encoder.finish() {
+                                Ok(cursor) => {
+                                    stream_csize = cursor.position() as usize;
+                                }
+                                Err(_) => stream_csize = 0,
                             }
-                            Err(_) => stream_csize = 0,
+                        } else {
+                            stream_csize = 0;
                         }
-                    } else {
-                        stream_csize = 0;
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        let _ = (clevel, stream_src);
+                        return Err(-1);
                     }
                 }
                 _ => return Err(-1),
@@ -756,8 +764,20 @@ pub fn decompress(src: &[u8], dest: &mut [u8]) -> Result<usize, Box<dyn std::err
                                 .map_err(|e| format!("Zlib error: {}", e))?
                                 as usize
                         }
-                        BLOSC_ZSTD => zstd::bulk::decompress_to_buffer(chunk_content, dest_slice)
-                            .map_err(|e| format!("Zstd error: {}", e))?,
+                        BLOSC_ZSTD => {
+                            let mut decoder = ruzstd::StreamingDecoder::new(chunk_content)
+                                .map_err(|e| format!("Zstd error: {:?}", e))?;
+                            let mut total = 0;
+                            while total < dest_slice.len() {
+                                let n = decoder.read(&mut dest_slice[total..])
+                                    .map_err(|e| format!("Zstd read error: {:?}", e))?;
+                                if n == 0 {
+                                    break;
+                                }
+                                total += n;
+                            }
+                            total
+                        }
                         _ => return Err(format!("Unsupported compressor: {}", compressor).into()),
                     };
 
@@ -985,7 +1005,17 @@ pub fn getitem(src: &[u8], start: usize, nitems: usize, dest: &mut [u8]) -> Resu
                             std::io::copy(&mut dec, &mut w).map_err(|_| -1)? as usize
                         }
                         BLOSC_ZSTD => {
-                            zstd::bulk::decompress_to_buffer(chunk, ds).map_err(|_| -1)?
+                            let mut decoder =
+                                ruzstd::StreamingDecoder::new(chunk).map_err(|_| -1)?;
+                            let mut total = 0;
+                            while total < ds.len() {
+                                let n = decoder.read(&mut ds[total..]).map_err(|_| -1)?;
+                                if n == 0 {
+                                    break;
+                                }
+                                total += n;
+                            }
+                            total
                         }
                         _ => return Err(-1),
                     };

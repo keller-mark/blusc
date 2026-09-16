@@ -20,9 +20,13 @@ crate-type = ["lib"]
 
 [dependencies]
 lz4_flex = "~0.12.0"
-zstd = "~0.13.3"
 flate2 = "^1.1.1"
 snap = "^1.1.1"
+ruzstd = "0.7"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+zstd = "~0.13.3"
+
 
 # Minimum version bumps for transitive build-deps (needed for cargo-minimal-versions check)
 # zstd-sys v2.0.7 specifies pkg-config = "0.3" which resolves to 0.3.0 (too old)
