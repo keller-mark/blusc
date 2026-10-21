@@ -94,11 +94,24 @@ Mirrors C `blosc2.c`: `read_chunk_header` -> `blosc_d` (per block) -> `pipeline_
   starting at multiples of `distance` (`copy_within`), `distance == 1` uses `fill`.
 - Benchmark: `cargo run --release --example bench_decompress`.
 
-## BloscLZ Codec
-
-Reference: `c-blosc2/blosc/blosclz.c`
-
-BloscLZ is based on FastLZ. Key implementation details:
+### zstd (`src/codecs/zstd.rs`)
+- Uses `zrip`, a pure-Rust zstd codec (`#![forbid(unsafe_code)]`, builds for wasm32).
+  `Compressor` / `Decompressor` wrap `zrip::CompressContext` / `DecompressContext`;
+  one of each per (de)compression call, reused across streams (C keeps
+  `zstd_cctx`/`zstd_dctx` in the thread context).
+- clevel mapping, identical in c-blosc2 `blosc/blosc2.c` `zstd_wrap_compress`
+  (lines ~494-522) and c-blosc `blosc/blosc.c` `zstd_wrap_compress` (lines ~499-511):
+  `clevel = (clevel < 9) ? clevel * 2 - 1 : ZSTD_maxCLevel();` (the following
+  `if (clevel == 8)` is unreachable). zrip's encoder only supports levels -7..=4, so
+  the result is clamped to 4: output is larger than C's for clevel >= 3, especially
+  clevel 9 (C uses zstd level 22). A zstd error => stream treated as incompressible.
+- Content checksums are disabled to match C `ZSTD_compressCCtx` defaults.
+- zrip decodes only into a `Vec`, so each stream is decoded into a reused `Vec`
+  (limit = stream size) and copied into the block.
+- Rejected alternatives: `ruzstd` (0.7 has no encoder; 0.9 only implements the
+  `Fastest` level and decoded the zarr test shard ~5x slower); `libzstd-rs-sys`
+  0.0.1-prerelease.2 (same speed as zrip, matching C levels, but does not compile
+  for wasm32-unknown-unknown because it uses `libc::size_t`/`libc::memcpy`).
 
 ### Compression (`blosclz_compress`, line ~430)
 - Uses ipshift=4, minlen=4 (constant for all clevels).

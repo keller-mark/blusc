@@ -1,4 +1,4 @@
-use crate::codecs::blosclz;
+use crate::codecs::{blosclz, zstd};
 use crate::filters;
 use crate::internal::constants::*;
 use std::io::Write;
@@ -371,6 +371,8 @@ fn compress_internal(
     let mut incompressible = false;
 
     let mut bstarts = vec![0usize; nblocks];
+    // zstd compression context, created lazily and shared by all streams.
+    let mut zstd_cctx: Option<zstd::Compressor> = None;
 
     for i in 0..nblocks {
         let start = i * blocksize;
@@ -454,19 +456,22 @@ fn compress_internal(
                     }
                 }
                 BLOSC_ZSTD => {
-                    let cursor = std::io::Cursor::new(&mut dest[current_dest_offset + 4..]);
-                    let mut encoder =
-                        zstd::stream::write::Encoder::new(cursor, clevel).map_err(|_| -1)?;
-                    if encoder.write_all(stream_src).is_ok() {
-                        match encoder.finish() {
-                            Ok(cursor) => {
-                                stream_csize = cursor.position() as usize;
-                            }
-                            Err(_) => stream_csize = 0,
-                        }
-                    } else {
-                        stream_csize = 0;
+                    // C: zstd_wrap_compress -> ZSTD_compressCCtx(zstd_cctx, ..., clevel)
+                    // with the Blosc clevel remapped to a zstd level. The context is
+                    // created once and reused for all streams (C: thread_context->zstd_cctx).
+                    if zstd_cctx.is_none() {
+                        zstd_cctx = Some(
+                            zstd::Compressor::new(zstd::blosc_clevel_to_zstd(clevel))
+                                .map_err(|_| -1)?,
+                        );
                     }
+                    // A zstd error (e.g. output does not fit) means "incompressible";
+                    // C returns 0 and Blosc memcpys the buffer.
+                    stream_csize = zstd_cctx
+                        .as_mut()
+                        .unwrap()
+                        .compress(stream_src, &mut dest[current_dest_offset + 4..])
+                        .unwrap_or(0);
                 }
                 _ => return Err(-1),
             }
@@ -677,11 +682,11 @@ impl ChunkHeader {
 
 /// Codec decoder state reused across all streams and blocks of a decompression call.
 ///
-/// Creating a zstd `DCtx` or a zlib inflate state is expensive (each is a heap
-/// allocation of tens to hundreds of KB). C blosc2 likewise keeps `zstd_dctx` in its
+/// Creating a zstd `DCtx` or a zlib inflate state is expensive (each owns heap
+/// buffers of tens to hundreds of KB). C blosc2 likewise keeps `zstd_dctx` in its
 /// thread context (blosc2.c `zstd_wrap_decompress`) instead of recreating it per stream.
 struct Decoders {
-    zstd: Option<zstd::bulk::Decompressor<'static>>,
+    zstd: Option<zstd::Decompressor>,
     zlib: Option<flate2::Decompress>,
     snappy: snap::raw::Decoder,
 }
@@ -719,14 +724,9 @@ impl Decoders {
                 zlib.total_out() as usize
             }
             BLOSC_ZSTD => {
-                let zstd = match &mut self.zstd {
-                    Some(zstd) => zstd,
-                    slot @ None => slot.insert(
-                        zstd::bulk::Decompressor::new()
-                            .map_err(|e| format!("Zstd error: {}", e))?,
-                    ),
-                };
-                zstd.decompress_to_buffer(input, output)
+                // C: zstd_wrap_decompress -> ZSTD_decompressDCtx(zstd_dctx, ...).
+                let zstd = self.zstd.get_or_insert_with(zstd::Decompressor::new);
+                zstd.decompress(input, output)
                     .map_err(|e| format!("Zstd error: {}", e))?
             }
             _ => return Err(format!("Unsupported compressor: {}", compressor).into()),
