@@ -76,21 +76,29 @@ pub fn decompress(input: &[u8], output: &mut [u8]) -> usize {
             ctrl = input[ip] as u32;
             ip += 1;
 
+            let len = len as usize;
+            let distance = distance as usize;
             if distance == 1 {
+                // C: memset(op, *ref, len)
                 let val = output[ref_pos];
-                for i in 0..len as usize {
-                    output[op + i] = val;
-                }
+                output[op..op + len].fill(val);
+            } else if distance >= len {
+                // Non-overlapping: C uses fastcopy/memcpy
+                output.copy_within(ref_pos..ref_pos + len, op);
             } else {
-                if distance as usize >= len as usize {
-                    output.copy_within(ref_pos..ref_pos + len as usize, op);
-                } else {
-                    for i in 0..len as usize {
-                        output[op + i] = output[ref_pos + i];
-                    }
+                // Overlapping match (C: copy_match / safecopy): the output repeats the
+                // `distance`-byte pattern starting at `ref_pos`. Copy from `ref_pos` in
+                // chunks that double in size; every chunk starts at a multiple of
+                // `distance` and reads only already-written bytes, so it never overlaps
+                // its destination.
+                let mut copied = 0;
+                while copied < len {
+                    let n = (copied + distance).min(len - copied);
+                    output.copy_within(ref_pos..ref_pos + n, op + copied);
+                    copied += n;
                 }
             }
-            op += len as usize;
+            op += len;
         } else {
             ctrl += 1;
             if op + ctrl as usize > op_limit {
