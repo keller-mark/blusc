@@ -14,7 +14,7 @@ Blusc is not intended to be as performant as the reference C implementation, as 
 
 The Blosc algorithm wraps other compression methods, including zstd, snappy, lz4, and zlib. We will use pure Rust implementations of these inner compression methods:
 
-- ruzstd crate for zstd: https://github.com/KillingSpark/zstd-rs
+- zrip crate for zstd: https://github.com/paddor/zrip
 - snap crate for snappy: https://github.com/BurntSushi/rust-snappy
 - lz4_flex crate for lz4: https://github.com/pseitz/lz4_flex
 - flate2 crate for zlib: https://github.com/rust-lang/flate2-rs
