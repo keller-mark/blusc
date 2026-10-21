@@ -143,6 +143,9 @@ pub fn blosc1_cbuffer_sizes(cbuffer: &[u8]) -> (usize, usize, usize) {
 /// Decompresses `nitems` elements starting at item index `start` into `dest`.
 /// Returns the number of bytes written, or 0 on error.
 pub fn blosc1_getitem(cbuffer: &[u8], start: i32, nitems: i32, dest: &mut [u8]) -> i32 {
+    if cbuffer.len() < BLOSC_MIN_HEADER_LENGTH || start < 0 || nitems < 0 {
+        return 0;
+    }
     let cbytes = u32::from_le_bytes([cbuffer[12], cbuffer[13], cbuffer[14], cbuffer[15]]) as usize;
 
     let src_slice = if cbuffer.len() >= cbytes {

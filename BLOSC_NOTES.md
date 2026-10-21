@@ -45,6 +45,55 @@ The blosc2 compression pipeline works as follows:
 3. If MEMCPYED flag: direct copy from after header.
 4. Otherwise: read bstarts array, decompress each block's streams, apply inverse filter.
 
+### Rust implementation structure (`src/internal/mod.rs`)
+
+Mirrors C `blosc2.c`: `read_chunk_header` -> `blosc_d` (per block) -> `pipeline_backward`.
+
+- `ChunkHeader::read`: parses/validates the header once (C `read_chunk_header`).
+  Rejects `blocksize == 0` / `typesize == 0` for non-memcpyed chunks and checks
+  that the bstarts array and `cbytes` fit in `src`.
+- `ChunkHeader::block_content`: bstarts are read directly from `src` (no `Vec`).
+  Like C `blosc_d`, a block's streams are bounded by `cbytes`, not the next
+  bstart (stream sizes are self-delimiting).
+- `decode_block`: the per-stream loop of C `blosc_d`. Stream csize (LE i32):
+  `0` = zeros, `< 0` = run of byte `-csize` (+1 token byte), `== neblock` = raw,
+  otherwise codec data. `nstreams = typesize` unless `dont_split` (flags bit 4)
+  or the leftover block.
+- `blosc_d`: decode + inverse filter, using ONE reusable block-sized scratch buffer:
+  - shuffle: decode -> tmp, `unshuffle(tmp -> dest)`
+  - bitshuffle: decode -> dest, `bitunshuffle_inplace(dest, tmp)`
+  - none: decode -> dest
+- `Decoders`: zstd `Decompressor` and zlib `flate2::Decompress` are created
+  lazily once per call and reused across all streams/blocks (C keeps
+  `zstd_dctx` in its thread context). zlib inflates one-shot into the output
+  (C uses `uncompress`).
+- `getitem`: only blocks overlapping the range are decoded. Fully covered blocks go
+  through `blosc_d` straight into `dest`; partial blocks are decoded into scratch and
+  only the requested bytes are unshuffled (`filters::unshuffle_partial`).
+
+### Filters (`src/filters/mod.rs`)
+
+- `unshuffle` is `dest[i*ts + j] = src[j*quot + i]`, trailing `blocksize % ts`
+  bytes copied as-is. Implemented with 16-element tiles specialized for typesize
+  2/4/8/16 so LLVM auto-vectorizes. No `std::arch` intrinsics, so this stays
+  portable to WASM.
+- Bitunshuffle = reverse of bitshuffle steps 3, 2, 1:
+  - step 3 reverse (`untrans_bitrow_eight`) is a pure block permutation and is fused
+    into the step 2 reverse: for element byte `e`, bit row `kk`, offset `r`,
+    the input byte is at `e*8*B + kk*B + r` with `B = size/8`.
+  - step 1 reverse (`trans_byte_elem` with swapped args) is exactly
+    `unshuffle(typesize, aligned_bytes)`.
+  - bytes past the last multiple of 8 elements are not bitshuffled, which enables
+    the in-place variant.
+
+### Performance notes
+- `lz4_flex` default features (`safe-decode`) are kept on purpose: on shuffled data
+  (long runs) the safe decoder was ~5x faster than the unsafe one in
+  `examples/bench_decompress.rs`.
+- BloscLZ overlapping matches (`distance < len`) are copied in doubling chunks
+  starting at multiples of `distance` (`copy_within`), `distance == 1` uses `fill`.
+- Benchmark: `cargo run --release --example bench_decompress`.
+
 ## BloscLZ Codec
 
 Reference: `c-blosc2/blosc/blosclz.c`

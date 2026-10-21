@@ -53,10 +53,7 @@ pub fn blosc1_decompress(src: &[u8]) -> Result<Vec<u8>, BloscError> {
         return Err(BloscError::InvalidHeader);
     }
 
-    let mut dest = vec![0u8; nbytes];
-    internal::decompress(src, &mut dest)
-        .map(|_| dest)
-        .map_err(|_| BloscError::Failed)
+    internal::decompress_to_vec(src).map_err(|_| BloscError::Failed)
 }
 
 /// Compresses `src` using Blosc2 format with default parameters.
@@ -107,8 +104,5 @@ pub fn blosc2_decompress(src: &[u8]) -> Result<Vec<u8>, BloscError> {
         return Err(BloscError::InvalidHeader);
     }
 
-    let mut dest = vec![0u8; nbytes];
-    internal::decompress(src, &mut dest)
-        .map(|_| dest)
-        .map_err(|_| BloscError::Failed)
+    internal::decompress_to_vec(src).map_err(|_| BloscError::Failed)
 }
